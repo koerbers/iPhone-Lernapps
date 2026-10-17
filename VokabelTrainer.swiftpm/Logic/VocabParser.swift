@@ -56,6 +56,9 @@ enum VocabParser {
     private static func make(term: String, translation: String, note: String = "") -> WordPair? {
         let t = clean(term), tr = clean(translation)
         guard !t.isEmpty, !tr.isEmpty else { return nil }
+        // Überschriften wie „Lektion 4 – Vokabeln“ (echte Vokabeln wie „page – Seite“ bleiben)
+        let heading = "^((lektion|unit|lesson|kapitel|chapter|step|seite|page)\\s*\\d+|vokabeln|vocabulary|wortschatz)$"
+        guard t.range(of: heading, options: [.regularExpression, .caseInsensitive]) == nil else { return nil }
         // Seitenzahlen o. Ä. ignorieren
         guard t.rangeOfCharacter(from: .letters) != nil, tr.rangeOfCharacter(from: .letters) != nil else { return nil }
         return WordPair(term: t, translation: tr, note: clean(note))
