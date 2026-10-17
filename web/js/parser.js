@@ -27,33 +27,59 @@ export function parseLine(rawLine) {
     .filter(Boolean);
 
   if (columns.length >= 3) {
-    return make(columns[0], columns.at(-1), columns.slice(1, -1).join(' '));
+    return makePair(columns[0], columns.at(-1), columns.slice(1, -1).join(' '));
   }
-  if (columns.length === 2) return make(columns[0], columns[1]);
+  if (columns.length === 2) return makePair(columns[0], columns[1]);
 
   // 2. Trennzeichen innerhalb der Zeile
   for (const sep of INLINE_SEPARATORS) {
     const idx = line.indexOf(sep);
-    if (idx >= 0) return make(line.slice(0, idx), line.slice(idx + sep.length));
+    if (idx >= 0) return makePair(line.slice(0, idx), line.slice(idx + sep.length));
   }
 
   // 3. Zwei Leerzeichen als letzte Möglichkeit
   const idx = line.indexOf('  ');
-  if (idx >= 0) return make(line.slice(0, idx), line.slice(idx + 2));
+  if (idx >= 0) return makePair(line.slice(0, idx), line.slice(idx + 2));
   return null;
 }
 
-function make(term, translation, note = '') {
+/** Baut ein Vokabelpaar aus Rohtext oder gibt null zurück, wenn es keins ist. */
+export function makePair(term, translation, note = '') {
   const t = clean(term);
   const tr = clean(translation);
   if (!t || !tr) return null;
   if (HEADING.test(t)) return null;
   // Seitenzahlen o. Ä. ignorieren
   if (!/\p{L}/u.test(t) || !/\p{L}/u.test(tr)) return null;
-  return { term: t, translation: tr, note: clean(note) };
+  // Bei der Notiz keine Nummerierung entfernen („3. Pers. Sg.“)
+  return { term: t, translation: tr, note: note.trim().replace(/[\s—–\-_|=~,;:]+$/, '') };
 }
 
 function clean(s) {
-  // Aufzählungszeichen und Nummerierung am Anfang entfernen („1.“, „•“, „-“)
-  return s.trim().replace(/^([0-9]+[.)]\s*|[•·*\-–]\s+)/, '').trim();
+  return s
+    .trim()
+    // Aufzählungszeichen und Nummerierung am Anfang entfernen („1.“, „•“, „-“, „*“)
+    .replace(/^([0-9]+[.)]\s*|[•·*\-–—]\s*)/, '')
+    // Striche, Linien und Satzzeichen-Reste am Ende entfernen
+    .replace(/[\s—–\-_|=~,;:]+$/, '')
+    .trim();
+}
+
+/**
+ * Korrigiert typische Lesefehler der Texterkennung bei Akzenten:
+ * - Fremdwort: Die Texterkennung kennt keine lateinischen Längenzeichen (ā, ē, ō …) und liest
+ *   sie als à, ä, ó … – daher alle Akzente entfernen („clàmàre“ → „clamare“).
+ * - Deutsch: ó/ò → ö, á/à → ä, ú/ù → ü („plótzlich“ → „plötzlich“).
+ */
+export function fixOcrAccents(pair) {
+  const plain = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').replaceAll('ı', 'i').normalize('NFC');
+  const german = (s) =>
+    s
+      .replace(/[áàâ]/g, 'ä').replace(/[ÁÀÂ]/g, 'Ä')
+      .replace(/[óòô]/g, 'ö').replace(/[ÓÒÔ]/g, 'Ö')
+      .replace(/[úùû]/g, 'ü').replace(/[ÚÙÛ]/g, 'Ü')
+      .replaceAll('ı', 'i');
+  // In der Notiz stehen meist Stammformen („properō“, „tālis, tāle“) und Abkürzungen („Präp. m. Akk.“)
+  const note = plain(pair.note ?? '').replace(/\bPrap\./g, 'Präp.');
+  return { ...pair, term: plain(pair.term), translation: german(pair.translation), note };
 }

@@ -1,12 +1,16 @@
 // Texterkennung im Browser:
 // - Fotos: Tesseract.js (läuft auf dem Gerät, lädt beim ersten Mal die Sprachdaten)
-// - PDFs: pdf.js liest die Textebene; eingescannte Seiten werden per Texterkennung gelesen.
-// Nebeneinanderliegende Wörter mit großem Abstand (Spalten einer Vokabelliste)
-// werden mit Tabulator getrennt, damit die Erkennung Wort und Übersetzung findet.
+// - PDFs: pdf.js liest die Textebene; eingescannte/fotografierte Seiten werden per Texterkennung gelesen.
+// Ergebnis ist der erkannte Text (zum Anzeigen) und – wenn die Seite wie eine Vokabeltabelle
+// aussieht – direkt die Vokabelpaare (siehe layout.js).
+import { tableToPairs } from './layout.js';
 
 const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs';
 const PDFJS_WORKER_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+
+/** Zielgröße (längste Seite in Pixeln) für die Texterkennung */
+const OCR_SIZE = 2200;
 
 let tesseractLoading;
 function loadTesseract() {
@@ -14,14 +18,17 @@ function loadTesseract() {
     const script = document.createElement('script');
     script.src = TESSERACT_URL;
     script.onload = () => resolve(window.Tesseract);
-    script.onerror = () => reject(new Error('Texterkennung konnte nicht geladen werden (Internet?)'));
+    script.onerror = () => {
+      tesseractLoading = null;
+      reject(new Error('Texterkennung konnte nicht geladen werden (Internet?)'));
+    };
     document.head.append(script);
   });
   return tesseractLoading;
 }
 
 let pdfjsLoading;
-async function loadPdfJs() {
+function loadPdfJs() {
   pdfjsLoading ??= import(PDFJS_URL).then((pdfjs) => {
     pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
     return pdfjs;
@@ -29,8 +36,35 @@ async function loadPdfJs() {
   return pdfjsLoading;
 }
 
-/** Verkleinert ein Bild (Datei oder Canvas) auf eine sinnvolle Größe. */
-export async function toCanvas(source, maxDimension = 2000) {
+// Die Texterkennung wird für alle Seiten eines Imports wiederverwendet (Laden dauert).
+let worker = null;
+let workerLanguages = '';
+let progressListener = null;
+
+async function getWorker(languages) {
+  if (worker && workerLanguages === languages) return worker;
+  await terminateOcr();
+  const Tesseract = await loadTesseract();
+  progressListener?.('Sprachdaten werden geladen …');
+  worker = await Tesseract.createWorker(languages, 1, {
+    logger: (m) => {
+      if (m.status === 'recognizing text') progressListener?.(`Text wird erkannt … ${Math.round(m.progress * 100)} %`);
+    },
+  });
+  workerLanguages = languages;
+  return worker;
+}
+
+/** Gibt den Speicher der Texterkennung frei (nach dem Import aufrufen). */
+export async function terminateOcr() {
+  const w = worker;
+  worker = null;
+  workerLanguages = '';
+  await w?.terminate();
+}
+
+/** Zeichnet ein Bild (Datei oder Canvas) verkleinert auf ein neues Canvas. */
+export async function toCanvas(source, maxDimension = OCR_SIZE) {
   const bitmap = source instanceof HTMLCanvasElement ? source : await createImageBitmap(source);
   const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
   const canvas = document.createElement('canvas');
@@ -40,39 +74,84 @@ export async function toCanvas(source, maxDimension = 2000) {
   return canvas;
 }
 
-/** Erkennt Text in einem Bild. `languages` z. B. "eng+deu" oder "lat+deu". */
-export async function recognizeImage(canvas, languages, onProgress) {
-  const Tesseract = await loadTesseract();
-  const worker = await Tesseract.createWorker(languages, 1, {
-    logger: (m) => {
-      if (m.status === 'recognizing text') onProgress?.(`Text wird erkannt … ${Math.round(m.progress * 100)} %`);
-      else if (m.status?.includes('loading')) onProgress?.('Sprachdaten werden geladen …');
-    },
-  });
-  try {
-    const { data } = await worker.recognize(canvas);
-    const words = (data.words ?? []).map((w) => ({
-      text: w.text,
-      x0: w.bbox.x0,
-      x1: w.bbox.x1,
-      y0: w.bbox.y0,
-      y1: w.bbox.y1,
-    }));
-    return words.length ? wordsToLines(words) : data.text;
-  } finally {
-    await worker.terminate();
+/**
+ * Macht das Bild schwarz-weiß. Die Schwelle richtet sich nach der Helligkeit der Umgebung,
+ * so verschwinden durchscheinende Schrift von der Rückseite, Schatten und graue Tabellenlinien.
+ */
+export function cleanUpImage(canvas) {
+  const { width: w, height: h } = canvas;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, w, h);
+  const d = image.data;
+
+  // Helligkeit und Summentabelle (für schnelle Mittelwerte über ein Fenster)
+  const lum = new Float32Array(w * h);
+  const sum = new Float64Array((w + 1) * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rowSum = 0;
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      lum[y * w + x] = l;
+      rowSum += l;
+      sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + rowSum;
+    }
   }
+
+  const r = Math.max(15, Math.round(Math.max(w, h) / 40));
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - r);
+    const y1 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - r);
+      const x1 = Math.min(w, x + r + 1);
+      const area = (y1 - y0) * (x1 - x0);
+      const mean = (sum[y1 * (w + 1) + x1] - sum[y0 * (w + 1) + x1] - sum[y1 * (w + 1) + x0] + sum[y0 * (w + 1) + x0]) / area;
+      const v = lum[y * w + x] < mean * 0.72 ? 0 : 255;
+      const i = (y * w + x) * 4;
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
 }
 
-/** Liest den Text einer PDF-Datei. */
+/**
+ * Erkennt Text in einem Bild. `languages` z. B. "eng+deu" oder "lat+deu".
+ * @returns {Promise<{text: string, pairs: object[] | null}>}
+ */
+export async function recognizeImage(canvas, languages, onProgress) {
+  progressListener = onProgress;
+  const w = await getWorker(languages);
+  const { data } = await w.recognize(cleanUpImage(canvas));
+  const words = (data.words ?? []).map((word) => ({
+    text: word.text,
+    confidence: word.confidence,
+    x0: word.bbox.x0,
+    x1: word.bbox.x1,
+    y0: word.bbox.y0,
+    y1: word.bbox.y1,
+  }));
+  return {
+    text: words.length ? wordsToLines(words) : data.text,
+    pairs: tableToPairs(words, canvas.width),
+  };
+}
+
+/**
+ * Liest eine PDF-Datei Seite für Seite.
+ * @returns {Promise<{text: string, pairs: object[] | null}[]>} ein Eintrag pro Seite
+ */
 export async function recognizePdf(file, languages, onProgress) {
   const pdfjs = await loadPdfJs();
   const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
   const pages = [];
   for (let i = 1; i <= pdf.numPages; i++) {
-    onProgress?.(`PDF-Seite ${i} von ${pdf.numPages} …`);
+    const step = `Seite ${i} von ${pdf.numPages}`;
+    onProgress?.(`${step} …`);
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
+    const width = page.getViewport({ scale: 1 }).width;
     const words = content.items
       .filter((item) => item.str?.trim())
       .map((item) => {
@@ -80,27 +159,45 @@ export async function recognizePdf(file, languages, onProgress) {
         const y = item.transform[5];
         const h = item.height || Math.abs(item.transform[3]) || 10;
         // PDF-Koordinaten: Ursprung unten → y umdrehen
-        return { text: item.str, x0: x, x1: x + item.width, y0: -y - h, y1: -y };
+        return { text: item.str.trim(), x0: x, x1: x + item.width, y0: -y - h, y1: -y };
       });
     const text = words.length ? wordsToLines(words) : '';
     if (text.replace(/\s/g, '').length > 30) {
-      pages.push(text);
+      pages.push({ text, pairs: tableToPairs(words, width) });
     } else {
-      // Eingescannte Seite ohne Text → als Bild erkennen
-      const viewport = page.getViewport({ scale: 2 });
-      const canvas = document.createElement('canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-      pages.push(await recognizeImage(await toCanvas(canvas), languages, onProgress));
+      // Eingescannte/fotografierte Seite → als Bild erkennen
+      const canvas = await renderPdfPage(page);
+      pages.push(await recognizeImage(canvas, languages, (m) => onProgress?.(`${step}: ${m}`)));
     }
   }
-  return pages.join('\n');
+  return pages;
+}
+
+/** Zeichnet eine PDF-Seite als Bild (für die Texterkennung oder die KI). */
+export async function renderPdfPage(page, maxDimension = OCR_SIZE) {
+  const base = page.getViewport({ scale: 1 });
+  const viewport = page.getViewport({ scale: maxDimension / Math.max(base.width, base.height) });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  return canvas;
+}
+
+/** Alle Seiten einer PDF als Bilder (für die KI). */
+export async function pdfPagesAsCanvases(file, maxDimension = 1600) {
+  const pdfjs = await loadPdfJs();
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const canvases = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    canvases.push(await renderPdfPage(await pdf.getPage(i), maxDimension));
+  }
+  return canvases;
 }
 
 /**
  * Fasst Wörter zu Zeilen zusammen (nach ihrer Höhe auf der Seite) und
- * trennt Spalten mit Tabulator.
+ * trennt Spalten mit Tabulator – für die Anzeige „Erkannter Text“ und als Rückfall.
  */
 export function wordsToLines(words) {
   const sorted = [...words].sort((a, b) => (a.y0 + a.y1) / 2 - (b.y0 + b.y1) / 2);
@@ -136,16 +233,6 @@ export function wordsToLines(words) {
     })
     .filter(Boolean)
     .join('\n');
-}
-
-/** Datei → Base64 (ohne „data:…;base64,“). */
-export function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(',')[1]);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
 }
 
 export function canvasToJpegBase64(canvas) {

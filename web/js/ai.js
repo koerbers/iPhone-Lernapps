@@ -16,15 +16,16 @@ export function isConfigured() {
 function extractionInstructions(subject) {
   const name = SUBJECTS[subject].name;
   let text = `Du hilfst einem Schulkind beim Anlegen von Vokabelkarten für das Fach ${name}.
-Aus dem Material (Vokabelliste aus einem Schulbuch, Arbeitsblatt oder Heft) extrahierst du alle Vokabelpaare.
-- "term" ist das Wort oder der Ausdruck auf ${name}.
-- "translation" ist die deutsche Bedeutung. Mehrere Bedeutungen durch Komma trennen.
-- Ignoriere Überschriften, Seitenzahlen, Beispielsätze und Erklärtexte.
-- Korrigiere offensichtliche Fehler der Texterkennung, erfinde aber keine Vokabeln.`;
-  if (subject === 'latin') {
-    text += `
-- Bei Latein gehören Grammatikangaben zum "term", so wie sie im Buch stehen, z. B. "amicus, -i m.", "vocare, voco, vocavi, vocatum", "magnus, -a, -um".`;
-  } else {
+Das Material ist meist ein Foto einer Vokabelliste aus einem Schulbuch, oft eine Tabelle mit mehreren Spalten:
+Wort auf ${name} | Grammatikangaben | deutsche Bedeutung (darunter manchmal Beispielsätze) | Merkhilfen (Fremdwörter mit Flaggen, Verweise mit →).
+Extrahiere alle Vokabeln dieser Seite:
+- "term": das Wort oder der Ausdruck auf ${name}, genau so geschrieben wie im Buch (Makrons wie ā, ē dürfen bleiben).
+- "translation": nur die deutsche Bedeutung. Mehrere Bedeutungen durch Komma trennen.
+- "note": Grammatikangaben aus der eigenen Spalte, z. B. "m", "f", "n", "Adv.", "Präp. m. Akk.", "3. Pers. Sg." oder Stammformen. Sonst leer.
+- Ignoriere Beispielsätze und ihre Übersetzungen, Merkhilfen, Überschriften, Seitenzahlen und Erklärtexte.
+- Ignoriere blasse, durchscheinende Schrift von der Rückseite des Blattes.
+- Korrigiere offensichtliche Lesefehler, erfinde aber keine Vokabeln.`;
+  if (subject === 'english') {
     text += `
 - Bei englischen Verben "to" mitschreiben, wenn es im Material steht. Unregelmäßige Formen ("go, went, gone") gehören zum "term".`;
   }
@@ -59,14 +60,12 @@ Ein Kind hat einen Satz von ${sourceLang(subject, dir)} ins ${targetLang(subject
 
 /**
  * Extrahiert Vokabelpaare.
- * @param {{text: string, imageBase64?: string, pdfBase64?: string}} material
+ * @param {{text?: string, imageBase64?: string}} material
  */
 export async function extractVocabulary(material, subject) {
   const content = [];
   if (material.imageBase64) {
     content.push({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: material.imageBase64 } });
-  } else if (material.pdfBase64) {
-    content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: material.pdfBase64 } });
   }
   let text = 'Extrahiere alle Vokabelpaare aus dem Material.';
   if (material.text) {
@@ -79,10 +78,13 @@ export async function extractVocabulary(material, subject) {
     content,
     effort: 'medium',
     schema: objectSchema({
-      pairs: { type: 'array', items: objectSchema({ term: { type: 'string' }, translation: { type: 'string' } }) },
+      pairs: {
+        type: 'array',
+        items: objectSchema({ term: { type: 'string' }, translation: { type: 'string' }, note: { type: 'string' } }),
+      },
     }),
   });
-  return result.pairs.map((p) => ({ ...p, note: '' }));
+  return result.pairs;
 }
 
 /** @param {{term: string, translation: string}[]} words */

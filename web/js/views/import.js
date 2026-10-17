@@ -1,8 +1,8 @@
 // Vokabeln aus Fotos, PDFs oder eingefügtem Text übernehmen.
 import { extractVocabulary, isConfigured } from '../ai.js';
 import { normalize } from '../answer.js';
-import { parse } from '../parser.js';
-import { canvasToJpegBase64, fileToBase64, recognizeImage, recognizePdf, toCanvas } from '../ocr.js';
+import { fixOcrAccents, parse } from '../parser.js';
+import { canvasToJpegBase64, pdfPagesAsCanvases, recognizeImage, recognizePdf, terminateOcr, toCanvas } from '../ocr.js';
 import { addCard, addList, cardsOf, db, getList, save } from '../store.js';
 import { SUBJECTS, SUBJECT_IDS } from '../subjects.js';
 import { esc, onAction } from '../ui.js';
@@ -164,6 +164,7 @@ function reviewView() {
           <div class="grow">
             <input data-row="${i}" data-field="term" value="${esc(p.term)}" placeholder="${subject.name}" autocapitalize="off" autocorrect="off">
             <input data-row="${i}" data-field="translation" value="${esc(p.translation)}" placeholder="Deutsch">
+            <input class="note-input" data-row="${i}" data-field="note" value="${esc(p.note)}" placeholder="Notiz (z. B. m, f, Adv.)">
           </div>
           <button class="icon-btn" data-action="removeRow" data-row="${i}" aria-label="Zeile löschen">🗑</button>
         </div>`).join('')}
@@ -191,31 +192,37 @@ async function processFiles(files, draw) {
   };
 
   for (const [i, file] of files.entries()) {
-    const step = files.length > 1 ? ` (${i + 1}/${files.length})` : '';
+    const step = files.length > 1 ? ` (Datei ${i + 1}/${files.length})` : '';
     const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     try {
       if (useAI) {
-        setMessage(`Claude liest die Vokabeln …${step}`);
         try {
-          const material = isPdf
-            ? { pdfBase64: await fileToBase64(file) }
-            : { imageBase64: canvasToJpegBase64(await toCanvas(file, 1800)) };
-          found.push(...(await extractVocabulary(material, subject)));
+          // Jede Seite einzeln als Bild an Claude schicken (auch bei großen PDFs zuverlässig)
+          const images = isPdf ? await pdfPagesAsCanvases(file) : [await toCanvas(file, 1800)];
+          for (const [p, canvas] of images.entries()) {
+            const which = images.length > 1 ? `Seite ${p + 1} von ${images.length}` : 'die Vokabeln';
+            setMessage(`Claude liest ${which} …${step}`);
+            found.push(...(await extractVocabulary({ imageBase64: canvasToJpegBase64(canvas) }, subject)));
+          }
           continue;
         } catch (e) {
           imp.notice = `Claude konnte nicht helfen (${e.message}). Es wurde die Texterkennung auf dem Gerät verwendet.`;
         }
       }
       setMessage(`Text wird erkannt …${step}`);
-      const text = isPdf
+      const pages = isPdf
         ? await recognizePdf(file, languages, (m) => setMessage(m + step))
-        : await recognizeImage(await toCanvas(file), languages, (m) => setMessage(m + step));
-      imp.rawText += (imp.rawText ? '\n\n' : '') + text;
-      found.push(...parse(text));
+        : [await recognizeImage(await toCanvas(file), languages, (m) => setMessage(m + step))];
+      for (const page of pages) {
+        imp.rawText += (imp.rawText ? '\n\n' : '') + page.text;
+        // Als Tabelle erkannt? Sonst Zeile für Zeile nach Trennzeichen suchen.
+        found.push(...(page.pairs?.length >= 3 ? page.pairs : parse(page.text)).map(fixOcrAccents));
+      }
     } catch (e) {
       imp.notice = e.message;
     }
   }
+  await terminateOcr();
   finish(found, draw);
 }
 
@@ -236,8 +243,17 @@ async function processText(text, draw) {
 }
 
 function finish(found, draw) {
+  const seen = new Set();
   imp.pairs = found
     .filter((p) => p.term || p.translation)
+    .filter((p) => {
+      // doppelte Vokabeln nur einmal anzeigen
+      const key = normalize(p.term ?? '');
+      if (!key) return true;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .map((p) => ({ term: p.term ?? '', translation: p.translation ?? '', note: p.note ?? '', include: true }));
   if (!imp.pairs.length) {
     imp.notice = `${imp.notice} Es wurden keine Vokabeln erkannt. Du kannst sie mit „＋ Zeile“ auch von Hand eintragen.`.trim();

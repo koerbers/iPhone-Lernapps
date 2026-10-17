@@ -304,6 +304,8 @@ textarea.answer-input { font-size: 19px; margin-bottom: 8px; }
 .btn.choice.wrong { background: var(--bad-bg); border-color: var(--bad); color: var(--bad-text); }
 .btn.choice.dim { opacity: 0.5; }
 
+.grammar { margin-top: 8px; color: var(--text-2); }
+.grammar strong { color: var(--text); }
 .revealed { font-size: 28px; font-weight: 800; text-align: center; color: var(--blue); margin: 10px 0; }
 
 .feedback { border-radius: var(--radius); padding: 14px 16px; margin: 14px 0 6px; background: var(--surface); text-align: center; }
@@ -335,6 +337,7 @@ ul.plain li { padding: 4px 0; }
 .review-row .grow { display: flex; flex-direction: column; gap: 6px; }
 .review-row input { min-height: 40px; padding: 8px 10px; }
 .review-row input[data-field="term"] { font-weight: 700; }
+.review-row .note-input { min-height: 34px; padding: 4px 10px; font-size: 14px; color: var(--text-2); }
 .review-row.off { opacity: 0.45; }
 .icon-btn.check { color: var(--text-2); }
 .icon-btn.check.on { background: var(--accent); color: var(--accent-text); }

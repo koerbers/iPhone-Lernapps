@@ -3,7 +3,8 @@
 // - ä/ae, ö/oe, ü/ue, ß/ss werden gleich behandelt.
 // - Artikel (der/die/das, the/a) und „to“ vor englischen Verben sind optional.
 // - Klammerinhalte sind optional: „(sich) freuen“ = „freuen“.
-// - Bei mehreren Bedeutungen („Haus, Gebäude“) reicht eine davon.
+// - Bei mehreren Bedeutungen („Haus, Gebäude“) reicht eine davon. checkMeanings() meldet
+//   zusätzlich, welche Bedeutungen noch fehlen (die werden später nochmal abgefragt).
 // - Kleine Tippfehler ergeben „fast richtig“ (zählt als richtig).
 
 export const CORRECT = 'correct';
@@ -13,21 +14,49 @@ export const WRONG = 'wrong';
 const OPTIONAL_PREFIXES = [
   'to ', 'the ', 'a ', 'an ',
   'der ', 'die ', 'das ', 'den ', 'dem ', 'des ', 'ein ', 'eine ', 'einen ', 'sich ',
+  'pl ', 'subst ', // Abkürzungen aus Schulbüchern: „Pl. die Eltern“, „Subst. der Grieche“
 ];
 
 export function check(input, expected) {
+  return checkMeanings(input, expected).result;
+}
+
+/**
+ * Prüft eine Antwort Bedeutung für Bedeutung.
+ * @returns {{result: string, meanings: string[], matched: number[], missing: string[]}}
+ *   meanings = alle Bedeutungen der Lösung, matched = Nummern der genannten Bedeutungen,
+ *   missing = Bedeutungen, die nicht genannt wurden
+ */
+export function checkMeanings(input, expected) {
+  const meanings = split(expected);
+  const variants = meanings.map(alternatives);
+  const whole = normalize(expected);
   const given = split(input).map(normalize).filter(Boolean);
-  const solutions = alternatives(expected);
-  if (!given.length || !solutions.length) return WRONG;
+  const outcome = (result, matched) => ({
+    result,
+    meanings,
+    matched: [...matched],
+    missing: meanings.filter((_, i) => !matched.has(i)),
+  });
+  if (!given.length || !meanings.length) return outcome(WRONG, new Set());
 
-  if (given.some((g) => solutions.includes(g))) return CORRECT;
-
+  // Genau richtig (alles zusammen oder einzelne Bedeutungen)
+  if (given.includes(whole)) return outcome(CORRECT, new Set(meanings.keys()));
+  const matched = new Set();
   for (const g of given) {
-    for (const s of solutions) {
-      if (levenshtein(g, s) <= tolerance(s)) return ALMOST;
-    }
+    variants.forEach((v, i) => {
+      if (v.includes(g)) matched.add(i);
+    });
   }
-  return WRONG;
+  if (matched.size) return outcome(CORRECT, matched);
+
+  // Kleiner Tippfehler
+  for (const g of given) {
+    variants.forEach((v, i) => {
+      if (v.some((s) => levenshtein(g, s) <= tolerance(s))) matched.add(i);
+    });
+  }
+  return outcome(matched.size ? ALMOST : WRONG, matched);
 }
 
 export function alternatives(expected) {
