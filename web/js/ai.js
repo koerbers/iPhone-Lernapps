@@ -22,7 +22,9 @@ Extrahiere alle Vokabeln dieser Seite:
 - "term": das Wort oder der Ausdruck auf ${name}, genau so geschrieben wie im Buch (Makrons wie ā, ē dürfen bleiben).
 - "translation": nur die deutsche Bedeutung. Mehrere Bedeutungen durch Komma trennen.
 - "note": Grammatikangaben aus der eigenen Spalte, z. B. "m", "f", "n", "Adv.", "Präp. m. Akk.", "3. Pers. Sg." oder Stammformen. Sonst leer.
-- Ignoriere Beispielsätze und ihre Übersetzungen, Merkhilfen, Überschriften, Seitenzahlen und Erklärtexte.
+- Beispielsätze (ein Satz auf ${name}, darunter die deutsche Übersetzung) gehören NICHT zu den Vokabeln, sondern in "sentences":
+  "prompt" ist der Satz auf ${name}, "solutions" die deutsche(n) Übersetzung(en) aus dem Buch (jede Variante einzeln).
+- Ignoriere Merkhilfen, Überschriften, Seitenzahlen und Erklärtexte.
 - Ignoriere blasse, durchscheinende Schrift von der Rückseite des Blattes.
 - Korrigiere offensichtliche Lesefehler, erfinde aber keine Vokabeln.`;
   if (subject === 'english') {
@@ -59,7 +61,8 @@ Ein Kind hat einen Satz von ${sourceLang(subject, dir)} ins ${targetLang(subject
 // ---------- Funktionen ----------
 
 /**
- * Extrahiert Vokabelpaare.
+ * Extrahiert Vokabelpaare und Beispielsätze.
+ * @returns {Promise<{pairs: object[], sentences: {prompt: string, solutions: string[]}[]}>}
  * @param {{text?: string, imageBase64?: string}} material
  */
 export async function extractVocabulary(material, subject) {
@@ -82,9 +85,13 @@ export async function extractVocabulary(material, subject) {
         type: 'array',
         items: objectSchema({ term: { type: 'string' }, translation: { type: 'string' }, note: { type: 'string' } }),
       },
+      sentences: {
+        type: 'array',
+        items: objectSchema({ prompt: { type: 'string' }, solutions: { type: 'array', items: { type: 'string' } } }),
+      },
     }),
   });
-  return result.pairs;
+  return { pairs: result.pairs, sentences: result.sentences ?? [] };
 }
 
 /** @param {{term: string, translation: string}[]} words */

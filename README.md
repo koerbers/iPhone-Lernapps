@@ -24,7 +24,9 @@ Die App gibt es in zwei Varianten, beide brauchen **keinen Mac**:
 - **Daumen hoch/runter:** 👍 oder 👎 nach jeder Antwort und als Gesamtergebnis am Ende der Runde.
 - **Drei Abfragearten:** Eintippen (tolerant bei Groß/Klein, Umlauten, Artikeln, „to“, kleinen Tippfehlern; bei mehreren Bedeutungen reicht eine), Auswählen (Multiple Choice) und Karteikarte (aufdecken und selbst einschätzen).
 - **Import aus Fotos, Kamera und PDFs:** Die Texterkennung läuft auf dem Gerät. Vokabeltabellen aus Schulbüchern (auch abfotografiert, mit Grammatik-Spalte, Beispielsätzen und Merkhilfen) werden automatisch in Wort, Übersetzung und Grammatik zerlegt. Vor dem Speichern kann man alles prüfen und korrigieren.
-- **Sätze übersetzen:** Die KI bildet kurze, kindgerechte Sätze mit den eigenen Vokabeln (bevorzugt mit denen, die noch nicht sitzen), bewertet die Übersetzung und gibt Feedback.
+- **Sätze übersetzen** (Latein → Deutsch, Englisch in beide Richtungen), zwei Quellen:
+  - **📖 Aus dem Buch:** Beispielsätze werden beim Import der Buchseiten automatisch mit übernommen (ohne KI, kostenlos). Die Antwort wird mit der Lösung aus dem Buch verglichen (Wortstellung und kleine Fehler egal); bei Abweichungen zeigt die App die Buchlösung und man schätzt mit 👍/👎 selbst ein – oder Claude bewertet, wenn eingerichtet. Falsch übersetzte Sätze kommen öfter dran.
+  - **🤖 Neue von der KI:** Claude bildet neue Sätze mit den eigenen Vokabeln (bevorzugt die, die noch nicht sitzen) und bewertet die Übersetzung.
 - **Erfolgskontrolle:** Serie (Tage in Folge), Trefferquote, Aktivität der letzten 14 Tage, Verteilung auf die Fächer der Lernkartei, Liste der häufigsten Fehler. Nach jeder Runde gibt es Sterne und die Liste der falschen Vokabeln.
 - Englische Wörter können vorgelesen werden.
 

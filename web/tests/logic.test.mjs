@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { ALMOST, CORRECT, WRONG, check, checkMeanings, levenshtein } from '../js/answer.js';
+import { ALMOST, CORRECT, WRONG, check, checkMeanings, levenshtein, sentenceSimilarity } from '../js/answer.js';
 import { fixOcrAccents, parse } from '../js/parser.js';
-import { tableToPairs } from '../js/layout.js';
+import { isGermanLine, tableToContent, tableToPairs } from '../js/layout.js';
 import { createSession, currentItem, recordAnswer } from '../js/session.js';
 import { MAX_BOX, buildSession, isDue, newState, priority, review, startOfDay, addDays } from '../js/srs.js';
 import { streak } from '../js/stats.js';
@@ -167,6 +167,68 @@ describe('Vokabeltabelle (Schulbuchseite)', () => {
       { text: 'wagen', x0: 920, x1: 1020, y0: 222, y1: 252 },
     ];
     assert.deepEqual(tableToPairs(w, 2200).at(-1), { term: 'audere', translation: 'wagen', note: '' });
+  });
+});
+
+describe('Beispielsätze aus dem Buch', () => {
+  let y = 0;
+  const words = [];
+  const row = (...cells) => {
+    y += 60;
+    for (const [x, text] of cells) {
+      let cx = x;
+      for (const part of text.split(' ')) {
+        words.push({ text: part, x0: cx, x1: cx + part.length * 18, y0: y, y1: y + 30 });
+        cx += part.length * 18 + 12;
+      }
+    }
+  };
+  row([60, 'est'], [450, '3. Pers. Sg.'], [920, 'er ist']);
+  row([920, 'Ibi Dàvus est.']);
+  row([920, 'Dort ist Davus.']);
+  row([60, 'studere'], [450, 'studeo'], [920, 'sich bemühen (um),']);
+  row([450, 'm. Dat.'], [920, 'streben nach']);
+  row([920, 'Libertati studeo.']);
+  row([920, 'Ich bemühe mich um die Freiheit.']);
+  row([920, 'Ich strebe nach Freiheit.']);
+  row([60, 'adesse'], [920, 'helfen']);
+  row([920, 'Tibi adsum; tu quidem mihi quoque adesse']);
+  row([920, 'debes.']);
+  row([920, 'Ich helfe dir; du musst auch mir helfen.']);
+  row([60, 'videre'], [450, 'video'], [920, 'sehen']);
+  row([60, 'equus'], [450, 'm'], [920, 'das Pferd']);
+  const content = tableToContent(words, 2200);
+
+  test('Sätze mit einer oder mehreren Übersetzungen', () => {
+    assert.deepEqual(content.sentences, [
+      { prompt: 'Ibi Dàvus est.', solutions: ['Dort ist Davus.'] },
+      { prompt: 'Libertati studeo.', solutions: ['Ich bemühe mich um die Freiheit.', 'Ich strebe nach Freiheit.'] },
+      { prompt: 'Tibi adsum; tu quidem mihi quoque adesse debes.', solutions: ['Ich helfe dir; du musst auch mir helfen.'] },
+    ]);
+  });
+
+  test('Bedeutung geht in der nächsten Zeile weiter', () => {
+    const studere = content.pairs.find((p) => p.term === 'studere');
+    assert.equal(studere.translation, 'sich bemühen (um), streben nach');
+    assert.equal(studere.note, 'studeo m. Dat.');
+    assert.deepEqual(content.pairs.map((p) => p.term), ['est', 'studere', 'adesse', 'videre', 'equus']);
+  });
+
+  test('Deutsch oder Fremdsprache?', () => {
+    for (const t of ['Dort ist (befindet sich) Davus.', 'Scorpus steht vor Incitatus.', 'Das Volk hórt nicht auf zu schreien.', 'Verschont uns!']) {
+      assert.ok(isGermanLine(t), t);
+    }
+    for (const t of ['Ibi Dávus est.', 'Scorpus ante Incitatum stat.', 'Libertati studeo.', 'Parcite nobis!', 'Nam Davus non adest.']) {
+      assert.ok(!isGermanLine(t), t);
+    }
+  });
+
+  test('Satzvergleich: Klammern als Varianten, Wortstellung und kleine Fehler egal', () => {
+    assert.equal(sentenceSimilarity('Dort ist Davus', 'Dort ist (befindet sich) Davus.'), 1);
+    assert.equal(sentenceSimilarity('dort befindet sich davus', 'Dort ist (befindet sich) Davus.'), 1);
+    assert.equal(sentenceSimilarity('Davus ist dort', 'Dort ist (befindet sich) Davus.'), 1);
+    assert.ok(sentenceSimilarity('Das Volk hoert nicht auf zu schrein', 'Das Volk hört nicht auf zu schreien.') >= 0.9);
+    assert.ok(sentenceSimilarity('Das Volk schreit', 'Das Volk hört nicht auf zu schreien.') < 0.9);
   });
 });
 

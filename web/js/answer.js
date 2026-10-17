@@ -61,6 +61,41 @@ export function checkMeanings(input, expected) {
   return outcome(matched.size ? ALMOST : WRONG, matched);
 }
 
+/**
+ * Wie ähnlich ist eine Satzübersetzung einer Musterlösung? (0 … 1)
+ * Klammern in der Lösung sind Varianten: „Dort ist (befindet sich) Davus.“ passt zu
+ * „Dort ist Davus“ und „Dort befindet sich Davus“. Die Wortstellung darf abweichen.
+ */
+export function sentenceSimilarity(answer, solution) {
+  const a = sentenceWords(answer);
+  if (!a.length) return 0;
+  let best = 0;
+  for (const variant of sentenceVariants(solution)) {
+    const b = sentenceWords(variant);
+    if (!b.length) continue;
+    if ([...a].sort().join(' ') === [...b].sort().join(' ')) return 1; // gleiche Wörter, andere Reihenfolge
+    const x = a.join(' ');
+    const y = b.join(' ');
+    best = Math.max(best, 1 - levenshtein(x, y) / Math.max(x.length, y.length));
+  }
+  return best;
+}
+
+function sentenceVariants(solution) {
+  return [
+    solution.replace(/\([^)]*\)/g, ' '), // ohne Klammerinhalt
+    solution.replace(/[()]/g, ' '), // mit Klammerinhalt
+    solution.replace(/(\S+)\s*\(([^)]*)\)/g, '$2'), // Klammerinhalt statt des Wortes davor
+  ];
+}
+
+function sentenceWords(text) {
+  let t = text.toLowerCase();
+  for (const [from, to] of [['ä', 'ae'], ['ö', 'oe'], ['ü', 'ue'], ['ß', 'ss']]) t = t.replaceAll(from, to);
+  t = t.normalize('NFD').replace(/\p{M}/gu, '');
+  return t.split(/[^\p{L}\p{N}']+/u).filter(Boolean);
+}
+
 export function alternatives(expected) {
   const withParentheses = expected.replace(/[()]/g, ' ');
   const all = [

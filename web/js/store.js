@@ -17,7 +17,7 @@ const DEFAULT_SETTINGS = {
 };
 
 function emptyState() {
-  return { lists: [], cards: [], logs: [], settings: { ...DEFAULT_SETTINGS } };
+  return { lists: [], cards: [], sentences: [], logs: [], settings: { ...DEFAULT_SETTINGS } };
 }
 
 function load() {
@@ -66,6 +66,7 @@ export function addList(name, subject) {
 export function deleteList(id) {
   db.lists = db.lists.filter((l) => l.id !== id);
   db.cards = db.cards.filter((c) => c.listId !== id);
+  db.sentences = db.sentences.filter((s) => s.listId !== id);
   save();
 }
 
@@ -99,6 +100,25 @@ export function resetProgress(cards) {
   save();
 }
 
+// ---------- Beispielsätze (z. B. aus dem Schulbuch) ----------
+
+export function sentencesOf(listIds) {
+  const ids = new Set(listIds);
+  return db.sentences.filter((s) => ids.has(s.listId));
+}
+
+/** @param {string[]} solutions eine oder mehrere richtige Übersetzungen */
+export function addSentence(listId, prompt, solutions, lesson = '') {
+  const sentence = { id: uid(), listId, prompt, solutions, lesson, correct: 0, wrong: 0, createdAt: Date.now() + db.sentences.length };
+  db.sentences.push(sentence);
+  return sentence;
+}
+
+export function deleteSentence(id) {
+  db.sentences = db.sentences.filter((s) => s.id !== id);
+  save();
+}
+
 // ---------- Lektionen ----------
 
 /** Einheitliche Schreibweise: „3“ → „Lektion 3“ */
@@ -117,7 +137,7 @@ export function sortLessons(lessons) {
 
 /** Alle Lektionen einer Liste ('' = Vokabeln ohne Lektion). */
 export function lessonsOf(listId) {
-  return sortLessons(new Set(cardsOf([listId]).map((c) => c.lesson ?? '')));
+  return sortLessons(new Set([...cardsOf([listId]), ...sentencesOf([listId])].map((c) => c.lesson ?? '')));
 }
 
 // ---------- Protokoll ----------

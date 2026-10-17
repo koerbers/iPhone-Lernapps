@@ -3,7 +3,7 @@
 // - PDFs: pdf.js liest die Textebene; eingescannte/fotografierte Seiten werden per Texterkennung gelesen.
 // Ergebnis ist der erkannte Text (zum Anzeigen) und – wenn die Seite wie eine Vokabeltabelle
 // aussieht – direkt die Vokabelpaare (siehe layout.js).
-import { tableToPairs } from './layout.js';
+import { tableToContent } from './layout.js';
 
 const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs';
@@ -118,7 +118,7 @@ export function cleanUpImage(canvas) {
 
 /**
  * Erkennt Text in einem Bild. `languages` z. B. "eng+deu" oder "lat+deu".
- * @returns {Promise<{text: string, pairs: object[] | null}>}
+ * @returns {Promise<{text: string, pairs: object[] | null, sentences: object[]}>}
  */
 export async function recognizeImage(canvas, languages, onProgress) {
   progressListener = onProgress;
@@ -132,15 +132,17 @@ export async function recognizeImage(canvas, languages, onProgress) {
     y0: word.bbox.y0,
     y1: word.bbox.y1,
   }));
+  const content = tableToContent(words, canvas.width);
   return {
     text: words.length ? wordsToLines(words) : data.text,
-    pairs: tableToPairs(words, canvas.width),
+    pairs: content?.pairs ?? null,
+    sentences: content?.sentences ?? [],
   };
 }
 
 /**
  * Liest eine PDF-Datei Seite für Seite.
- * @returns {Promise<{text: string, pairs: object[] | null}[]>} ein Eintrag pro Seite
+ * @returns {Promise<{text: string, pairs: object[] | null, sentences: object[]}[]>} ein Eintrag pro Seite
  */
 export async function recognizePdf(file, languages, onProgress) {
   const pdfjs = await loadPdfJs();
@@ -163,7 +165,8 @@ export async function recognizePdf(file, languages, onProgress) {
       });
     const text = words.length ? wordsToLines(words) : '';
     if (text.replace(/\s/g, '').length > 30) {
-      pages.push({ text, pairs: tableToPairs(words, width) });
+      const content = tableToContent(words, width);
+      pages.push({ text, pairs: content?.pairs ?? null, sentences: content?.sentences ?? [] });
     } else {
       // Eingescannte/fotografierte Seite → als Bild erkennen
       const canvas = await renderPdfPage(page);

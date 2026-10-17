@@ -1,7 +1,8 @@
 // Vokabellisten: Übersicht, einzelne Liste, Vokabeln bearbeiten.
 import { MASTERED_BOX, stateOf, weakestBox } from '../srs.js';
 import {
-  addCard, addList, cardsOf, cleanLesson, db, deleteCard, deleteList, getList, lessonsOf, listsOf, resetProgress, save,
+  addCard, addList, addSentence, cardsOf, cleanLesson, db, deleteCard, deleteList, deleteSentence, getList, lessonsOf,
+  listsOf, resetProgress, save, sentencesOf,
 } from '../store.js';
 import { SUBJECTS, SUBJECT_IDS, dirLabel } from '../subjects.js';
 import { boxIndicator, esc, formDialog, onAction } from '../ui.js';
@@ -45,7 +46,10 @@ function listRow(list, sid) {
     <a class="list-row" href="#/liste/${list.id}">
       <div class="grow">
         <strong>${esc(list.name)}</strong>
-        <div class="row between muted small"><span>${cards.length} Vokabeln</span><span>${pct} % sitzen</span></div>
+        <div class="row between muted small">
+          <span>${cards.length} Vokabeln${sentencesOf([list.id]).length ? ` · ${sentencesOf([list.id]).length} Sätze` : ''}</span>
+          <span>${pct} % sitzen</span>
+        </div>
         <div class="progress thin"><div style="width:${pct}%"></div></div>
       </div>
       <span class="chevron">›</span>
@@ -92,6 +96,7 @@ export function renderListDetail(root, listId) {
             </details>`;
         }).join('')
       : `<div class="list-group">${cards.map(row).join('')}</div>`;
+  const sentences = sentencesOf([listId]).sort((a, b) => a.createdAt - b.createdAt);
 
   root.innerHTML = `
     <a class="back" href="#/listen">‹ Vokabeln</a>
@@ -100,10 +105,25 @@ export function renderListDetail(root, listId) {
     <div class="row wrap">
       <button class="btn primary" data-action="add">＋ Vokabel</button>
       <a class="btn" href="#/import/${listId}">📷 Importieren</a>
+      <button class="btn" data-action="addSentence">＋ Satz</button>
       <button class="btn" data-action="rename">✏️ Umbenennen</button>
     </div>
     <input class="search" type="search" placeholder="Vokabel suchen">
     ${body}
+    ${sentences.length ? `
+      <details class="lesson-group">
+        <summary>📝 Beispielsätze <span class="muted">${sentences.length}</span></summary>
+        <div class="list-group">
+          ${sentences.map((x) => `
+            <button class="list-row" data-action="editSentence" data-id="${x.id}" data-search="${esc(`${x.prompt} ${x.solutions.join(' ')}`.toLowerCase())}">
+              <div class="grow left">
+                <strong>${esc(x.prompt)}</strong>
+                <div class="muted">${esc(x.solutions.join(' / '))}</div>
+                ${x.lesson ? `<small class="muted">📑 ${esc(x.lesson)}</small>` : ''}
+              </div>
+            </button>`).join('')}
+        </div>
+      </details>` : ''}
     <div class="row wrap danger-zone">
       <button class="btn" data-action="reset">Lernstand zurücksetzen</button>
       <button class="btn bad" data-action="deleteList">Liste löschen</button>
@@ -121,6 +141,12 @@ export function renderListDetail(root, listId) {
   onAction(root, {
     add: async () => {
       if (await cardDialog(list)) renderListDetail(root, listId);
+    },
+    addSentence: async () => {
+      if (await sentenceDialog(list)) renderListDetail(root, listId);
+    },
+    editSentence: async (el) => {
+      if (await sentenceDialog(list, db.sentences.find((x) => x.id === el.dataset.id))) renderListDetail(root, listId);
     },
     edit: async (el) => {
       if (await cardDialog(list, db.cards.find((c) => c.id === el.dataset.id))) renderListDetail(root, listId);
@@ -184,6 +210,37 @@ export async function cardDialog(list, card) {
   const lesson = cleanLesson(values.lesson);
   if (card) Object.assign(card, { term, translation, note: values.note.trim(), lesson });
   else addCard(list.id, term, translation, values.note.trim(), lesson);
+  save();
+  return true;
+}
+
+/** Dialog zum Anlegen/Bearbeiten eines Beispielsatzes. */
+async function sentenceDialog(list, sentence) {
+  const subject = SUBJECTS[list.subject];
+  const values = await formDialog(sentence ? 'Satz bearbeiten' : 'Neuer Satz', `
+    <label class="field">Satz auf ${subject.name}
+      <input name="prompt" required autocapitalize="off" autocorrect="off" value="${esc(sentence?.prompt)}" placeholder="z. B. Ibi Davus est.">
+    </label>
+    <label class="field">Übersetzung(en)
+      <textarea name="solutions" rows="3" required placeholder="z. B. Dort ist Davus.">${esc(sentence?.solutions.join('\n'))}</textarea>
+      <small class="muted">Mehrere richtige Übersetzungen: eine pro Zeile.</small>
+    </label>
+    <label class="field">Lektion (optional)
+      <input name="lesson" list="sentence-lessons" value="${esc(sentence?.lesson)}" placeholder="z. B. Lektion 3">
+      <datalist id="sentence-lessons">${lessonsOf(list.id).filter(Boolean).map((l) => `<option value="${esc(l)}">`).join('')}</datalist>
+    </label>
+    ${sentence ? '<label class="check-row"><input type="checkbox" name="delete"> <span>Diesen Satz löschen</span></label>' : ''}`);
+  if (!values) return false;
+  if (sentence && values.delete) {
+    deleteSentence(sentence.id);
+    return true;
+  }
+  const prompt = values.prompt.trim();
+  const solutions = values.solutions.split('\n').map((x) => x.trim()).filter(Boolean);
+  if (!prompt || !solutions.length) return false;
+  const lesson = cleanLesson(values.lesson);
+  if (sentence) Object.assign(sentence, { prompt, solutions, lesson });
+  else addSentence(list.id, prompt, solutions, lesson);
   save();
   return true;
 }

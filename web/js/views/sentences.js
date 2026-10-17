@@ -1,8 +1,12 @@
-// Sätze übersetzen: Claude bildet Sätze mit den eigenen Vokabeln und bewertet die Übersetzung.
+// Sätze übersetzen – zwei Quellen:
+// - „Aus dem Buch“: Beispielsätze, die beim Import mit erkannt wurden (ohne KI, kostenlos).
+//   Bewertung durch Vergleich mit der Lösung aus dem Buch; bei Abweichungen bewertet die KI
+//   (falls eingerichtet) oder man schätzt selbst ein.
+// - „Neue von der KI“: Claude bildet Sätze mit den eigenen Vokabeln und bewertet die Übersetzung.
 import { gradeTranslation, isConfigured, makeSentences } from '../ai.js';
-import { normalize } from '../answer.js';
+import { normalize, sentenceSimilarity } from '../answer.js';
 import { priority, stateOf } from '../srs.js';
-import { addLog, cardsOf, lessonsOf, listsOf, save } from '../store.js';
+import { addLog, cardsOf, lessonsOf, listsOf, save, sentencesOf } from '../store.js';
 import { SUBJECTS, sourceLang, targetLang } from '../subjects.js';
 import { closeOverlay, esc, onAction, openOverlay, resultScreen, speakButton, speakEnglish } from '../ui.js';
 
@@ -12,15 +16,25 @@ export function renderSentenceSetup(root, subjectId) {
   const subject = SUBJECTS[subjectId];
   if (!subject) return (location.hash = '#/lernen');
   const lists = listsOf(subjectId);
-  const c = (choices[subjectId] ??= { listId: '', lesson: null, dir: 'fwd', count: 5 });
+  const c = (choices[subjectId] ??= { listId: '', lesson: null, dir: 'fwd', count: 5, source: null });
   const lessons = c.listId ? lessonsOf(c.listId) : [];
   const hasLessons = lessons.some(Boolean);
+  const ids = c.listId ? [c.listId] : lists.map((l) => l.id);
+  const inLesson = (x) => c.lesson == null || (x.lesson ?? '') === c.lesson;
+  const bookSentences = sentencesOf(ids).filter(inLesson);
+  const allBook = sentencesOf(lists.map((l) => l.id)).length;
+  c.source ??= allBook ? 'book' : 'ai';
+  const ai = isConfigured();
 
   root.innerHTML = `
     <a class="back" href="#/lernen">‹ Lernen</a>
     <h1>💬 Sätze übersetzen</h1>
     <section class="card">
-      <label class="field">Vokabeln aus
+      <div class="segmented">
+        <label><input type="radio" name="source" value="book" ${c.source === 'book' ? 'checked' : ''}><span>📖 Aus dem Buch</span></label>
+        <label><input type="radio" name="source" value="ai" ${c.source === 'ai' ? 'checked' : ''}><span>🤖 Neue von der KI</span></label>
+      </div>
+      <label class="field">${c.source === 'book' ? 'Sätze aus' : 'Vokabeln aus'}
         <select name="list">
           <option value="">allen ${subject.name}-Listen</option>
           ${lists.map((l) => `<option value="${l.id}" ${c.listId === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}
@@ -41,13 +55,22 @@ export function renderSentenceSetup(root, subjectId) {
       <label class="field">Anzahl Sätze
         <select name="count">${[3, 5, 8, 10].map((n) => `<option ${c.count === n ? 'selected' : ''}>${n}</option>`).join('')}</select>
       </label>
-      <button class="btn primary large" data-action="start">▶︎ Los geht’s</button>
-      <p class="hint">Die KI bildet neue Sätze mit deinen Vokabeln – bevorzugt mit denen, die noch nicht so gut sitzen.</p>
+      ${c.source === 'book' ? `<p class="muted">${bookSentences.length} Sätze aus dem Buch verfügbar</p>` : ''}
+      <button class="btn primary large" data-action="start"
+        ${(c.source === 'book' && !bookSentences.length) || (c.source === 'ai' && !ai) ? 'disabled' : ''}>▶︎ Los geht’s</button>
+      <p class="hint">${c.source === 'book'
+        ? 'Beispielsätze, die beim Import aus deinem Buch übernommen wurden – funktioniert ohne KI. Sätze, die du falsch hattest, kommen öfter dran.'
+        : 'Die KI bildet neue Sätze mit deinen Vokabeln – bevorzugt mit denen, die noch nicht so gut sitzen.'}</p>
     </section>
-    ${isConfigured() ? '' : `
+    ${c.source === 'book' && !allBook ? `
+      <section class="card info">
+        Noch keine Sätze aus dem Buch. Importiere eine Buchseite mit Beispielsätzen (Vokabeln → Importieren) –
+        die Sätze werden dabei automatisch mit übernommen.
+      </section>` : ''}
+    ${c.source === 'ai' && !ai ? `
       <section class="card warn">
-        Für Sätze wird die KI (Claude) benötigt. Bitte in den <a href="#/einstellungen">Einstellungen</a> einen API-Schlüssel eintragen.
-      </section>`}
+        Für neue Sätze wird die KI (Claude) benötigt. Bitte in den <a href="#/einstellungen">Einstellungen</a> einen API-Schlüssel eintragen.
+      </section>` : ''}
   `;
 
   root.onchange = (event) => {
@@ -60,13 +83,18 @@ export function renderSentenceSetup(root, subjectId) {
     if (t.name === 'lesson') c.lesson = t.value === '*' ? null : t.value;
     if (t.name === 'dir') c.dir = t.value;
     if (t.name === 'count') c.count = Number(t.value);
+    if (t.name === 'source') c.source = t.value;
+    if (t.name === 'lesson' || t.name === 'source') renderSentenceSetup(root, subjectId);
   };
 
   onAction(root, {
     start: () => {
-      const ids = c.listId ? [c.listId] : lists.map((l) => l.id);
       const dir = subjectId === 'latin' ? 'fwd' : c.dir;
-      const cards = cardsOf(ids).filter((card) => c.lesson == null || (card.lesson ?? '') === c.lesson);
+      if (c.source === 'book') {
+        const exercises = pickBookSentences(bookSentences, c.count).map((x) => bookExercise(x, dir));
+        return runRound({ subject: subjectId, dir, exercises });
+      }
+      const cards = cardsOf(ids).filter(inLesson);
       const words = pickWords(cards, dir, 12);
       if (!words.length) return alert('Diese Liste enthält noch keine Vokabeln.');
       runRound({ subject: subjectId, dir, words, count: c.count });
@@ -85,11 +113,34 @@ export function pickWords(cards, dir, max) {
     .map(({ card }) => ({ term: card.term, translation: card.translation }));
 }
 
+/** Sätze aus dem Buch auswählen: falsch beantwortete und neue bevorzugt, mit Zufall. */
+export function pickBookSentences(sentences, count) {
+  return sentences
+    .map((x) => ({ x, score: Math.random() * 2 + (x.wrong ?? 0) * 1.5 - (x.correct ?? 0) * 0.7 + (x.correct || x.wrong ? 0 : 1) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, count)
+    .map(({ x }) => x);
+}
+
+/** Übung aus einem Buchsatz. Deutsch → Fremdsprache: Die deutsche Übersetzung wird zur Aufgabe. */
+function bookExercise(sentence, dir) {
+  const solutions = dir === 'fwd' ? sentence.solutions : [sentence.prompt];
+  return {
+    prompt: dir === 'fwd' ? sentence.prompt : sentence.solutions[0],
+    solution: solutions.join(' / '),
+    solutions,
+    sentence,
+  };
+}
+
 // ---------- Runde ----------
 
 function runRound(round) {
   const root = openOverlay();
-  const st = { exercises: [], index: 0, loading: true, error: null, grade: null, selfCheck: false, correct: 0, missed: [], answer: '' };
+  const st = {
+    exercises: round.exercises ?? [], index: 0, loading: !round.exercises, error: null,
+    grade: null, selfCheck: false, correct: 0, missed: [], answer: '',
+  };
 
   const draw = () => {
     root.innerHTML = `<div class="session">${body(round, st)}</div>`;
@@ -110,6 +161,7 @@ function runRound(round) {
   }
 
   function record(correct, exercise) {
+    if (exercise.sentence) exercise.sentence[correct ? 'correct' : 'wrong'] = (exercise.sentence[correct ? 'correct' : 'wrong'] ?? 0) + 1;
     if (correct) st.correct += 1;
     else st.missed.push(`${exercise.prompt} → ${exercise.solution}`);
     addLog({ date: Date.now(), subject: round.subject, dir: round.dir, kind: 'sentence', correct, prompt: exercise.prompt });
@@ -129,6 +181,23 @@ function runRound(round) {
         st.grade = { correct: true, feedback: 'Perfekt – genau wie die Musterlösung!', correctedTranslation: exercise.solution };
         record(true, exercise);
         return draw();
+      }
+      if (exercise.solutions) {
+        // Satz aus dem Buch: mit der Lösung aus dem Buch vergleichen
+        const similarity = Math.max(...exercise.solutions.map((x) => sentenceSimilarity(st.answer, x)));
+        if (similarity >= 0.9) {
+          st.grade = {
+            correct: true,
+            feedback: similarity === 1 ? 'Perfekt – genau wie im Buch!' : 'Richtig – nur kleine Abweichungen vom Buch.',
+            correctedTranslation: exercise.solution,
+          };
+          record(true, exercise);
+          return draw();
+        }
+        if (!isConfigured()) {
+          st.selfCheck = true; // ohne KI: Lösung zeigen und selbst einschätzen
+          return draw();
+        }
       }
       st.loading = true;
       draw();
@@ -161,7 +230,8 @@ function runRound(round) {
     root.querySelector('#answer')?.focus();
   }
 
-  load();
+  if (round.exercises) draw();
+  else load();
 }
 
 function body(round, st) {
@@ -172,6 +242,9 @@ function body(round, st) {
       <span></span>
     </header>`;
 
+  if (!st.loading && !st.error && !st.exercises.length) {
+    return `${bar('')}<div class="card warn center"><p>Keine Sätze gefunden.</p><button class="btn" data-action="close">Zurück</button></div>`;
+  }
   if (st.loading && !st.exercises.length) {
     return `${bar('')}<div class="center pad"><div class="spinner"></div><p>Sätze werden erstellt …</p></div>`;
   }
@@ -203,15 +276,15 @@ function body(round, st) {
         <h2 class="${g.correct ? 'good-text' : 'warn-text'}">${g.correct ? 'Richtig!' : 'Noch nicht ganz'}</h2>
         <p>${esc(g.feedback)}</p>
         ${g.correct ? '' : `<p><strong>So wäre es richtig:</strong><br>${esc(g.correctedTranslation)}</p>`}
-        <p class="muted">Musterlösung: ${esc(exercise.solution)}</p>
+        <p class="muted">${exercise.sentence ? 'So steht es im Buch' : 'Musterlösung'}: ${esc(exercise.solution)}</p>
       </div>
       <button class="btn primary large" data-action="next">Weiter</button>`;
   } else if (st.selfCheck) {
     lower = `
       <div class="feedback">
-        <p><strong>Musterlösung:</strong></p>
-        <p class="big">${esc(exercise.solution)}</p>
-        <p class="muted">War deine Übersetzung richtig?</p>
+        <p><strong>${exercise.sentence ? 'So steht es im Buch:' : 'Musterlösung:'}</strong></p>
+        ${(exercise.solutions ?? [exercise.solution]).map((x) => `<p class="big">${esc(x)}</p>`).join('')}
+        <p class="muted">Vergleiche mit deiner Übersetzung – war sie (sinngemäß) richtig?</p>
       </div>
       <div class="row">
         <button class="btn large bad" data-action="selfNo">👎 Nein</button>

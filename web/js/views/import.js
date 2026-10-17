@@ -6,7 +6,9 @@ import { fixOcrAccents, parse } from '../parser.js';
 import {
   canvasToJpegBase64, pdfPagesAsCanvases, pdfThumbnails, recognizeImage, recognizePdf, terminateOcr, toCanvas,
 } from '../ocr.js';
-import { addCard, addList, cardsOf, cleanLesson, db, getList, lessonsOf, save } from '../store.js';
+import {
+  addCard, addList, addSentence, cardsOf, cleanLesson, db, getList, lessonsOf, save, sentencesOf,
+} from '../store.js';
 import { SUBJECTS, SUBJECT_IDS } from '../subjects.js';
 import { esc, onAction } from '../ui.js';
 
@@ -17,6 +19,7 @@ function freshState(listId = '') {
   return {
     stage: 'pick', // pick | ask | assign | busy | review
     listId, newName: '', newSubject: 'english', message: '', pairs: [], notice: '', rawText: '', pasted: '', pasteLesson: '',
+    sentences: [], // Beispielsätze: { prompt, solutions[], lesson, include }
     files: [],
     units: [], // eine Einheit pro PDF-Seite bzw. Foto: { fileIndex, label, thumb, lesson, explicit }
   };
@@ -53,6 +56,10 @@ export function renderImport(root, listId) {
     if (t.name === 'pasted') imp.pasted = t.value;
     if (t.name === 'pasteLesson') imp.pasteLesson = t.value;
     if (t.dataset.field) imp.pairs[Number(t.dataset.row)][t.dataset.field] = t.value;
+    if (t.dataset.sfield === 'prompt') imp.sentences[Number(t.dataset.srow)].prompt = t.value;
+    if (t.dataset.sfield === 'solutions') {
+      imp.sentences[Number(t.dataset.srow)].solutions = t.value.split(' / ').map((x) => x.trim()).filter(Boolean);
+    }
   };
 
   onAction(root, {
@@ -69,6 +76,15 @@ export function renderImport(root, listId) {
     toggleRow: (el) => {
       const pair = imp.pairs[Number(el.dataset.row)];
       pair.include = !pair.include;
+      draw();
+    },
+    toggleSentence: (el) => {
+      const sentence = imp.sentences[Number(el.dataset.srow)];
+      sentence.include = !sentence.include;
+      draw();
+    },
+    removeSentence: (el) => {
+      imp.sentences.splice(Number(el.dataset.srow), 1);
       draw();
     },
     removeRow: (el) => {
@@ -233,6 +249,7 @@ function busyView() {
 function reviewView() {
   const subject = SUBJECTS[targetSubject()];
   const included = imp.pairs.filter((p) => p.include).length;
+  const sentencesIncluded = imp.sentences.filter((x) => x.include).length;
   return `
     <button class="back link" data-action="back">‹ Zurück</button>
     <h1>Vokabeln prüfen</h1>
@@ -260,12 +277,37 @@ function reviewView() {
           <button class="icon-btn" data-action="removeRow" data-row="${i}" aria-label="Zeile löschen">🗑</button>
         </div>`).join('')}
     </div>
+    ${sentencesSection(subject)}
     ${imp.rawText ? `
       <details class="card">
         <summary>Erkannter Text anzeigen</summary>
         <pre class="raw">${esc(imp.rawText)}</pre>
       </details>` : ''}
-    <button class="btn primary large sticky-bottom" data-action="save" ${included ? '' : 'disabled'}>${included} Vokabeln übernehmen</button>`;
+    <button class="btn primary large sticky-bottom" data-action="save" ${included || sentencesIncluded ? '' : 'disabled'}>
+      ${included} Vokabeln${sentencesIncluded ? ` + ${sentencesIncluded} Sätze` : ''} übernehmen
+    </button>`;
+}
+
+/** Gefundene Beispielsätze (werden als Übungssätze für „Sätze übersetzen“ gespeichert). */
+function sentencesSection(subject) {
+  if (!imp.sentences.length) return '';
+  const included = imp.sentences.filter((x) => x.include).length;
+  return `
+    <h2 class="section-title">📝 Beispielsätze (${included} von ${imp.sentences.length})</h2>
+    <p class="hint">Diese Sätze aus dem Buch werden als Übungssätze gespeichert (Lernen → Sätze übersetzen → „Sätze aus dem Buch“).
+    Oben ${subject.name}, darunter die Übersetzung – mehrere Übersetzungen mit „ / “ trennen.</p>
+    <div class="review">
+      ${imp.sentences.map((x, i) => `
+        ${x.lesson && x.lesson !== imp.sentences[i - 1]?.lesson ? `<h3 class="lesson-head">📑 ${esc(x.lesson)}</h3>` : ''}
+        <div class="review-row ${x.include ? '' : 'off'}">
+          <button class="icon-btn check ${x.include ? 'on' : ''}" data-action="toggleSentence" data-srow="${i}" aria-label="Satz übernehmen">✓</button>
+          <div class="grow">
+            <input data-srow="${i}" data-sfield="prompt" value="${esc(x.prompt)}" placeholder="${subject.name}" autocapitalize="off" autocorrect="off">
+            <input data-srow="${i}" data-sfield="solutions" value="${esc(x.solutions.join(' / '))}" placeholder="Deutsch">
+          </div>
+          <button class="icon-btn" data-action="removeSentence" data-srow="${i}" aria-label="Satz löschen">🗑</button>
+        </div>`).join('')}
+    </div>`;
 }
 
 // ---------- Verarbeitung ----------
@@ -307,6 +349,7 @@ async function processFiles(files, lessons, draw) {
   const useAI = db.settings.useAI && isConfigured();
   const languages = SUBJECTS[subject].ocrLang;
   const found = [];
+  const foundSentences = [];
   imp = { ...imp, stage: 'busy', rawText: '' };
 
   const setMessage = (text) => {
@@ -330,8 +373,9 @@ async function processFiles(files, lessons, draw) {
           for (const [p, canvas] of images.entries()) {
             const which = images.length > 1 ? `Seite ${p + 1} von ${images.length}` : 'die Vokabeln';
             setMessage(`Claude liest ${which} …${step}`);
-            const pairs = await extractVocabulary({ imageBase64: canvasToJpegBase64(canvas) }, subject);
-            found.push(...pairs.map((pair) => ({ ...pair, lesson: lessonFor(i, p) })));
+            const result = await extractVocabulary({ imageBase64: canvasToJpegBase64(canvas) }, subject);
+            found.push(...result.pairs.map((pair) => ({ ...pair, lesson: lessonFor(i, p) })));
+            foundSentences.push(...result.sentences.map((x) => ({ ...x, lesson: lessonFor(i, p) })));
           }
           continue;
         } catch (e) {
@@ -347,13 +391,22 @@ async function processFiles(files, lessons, draw) {
         // Als Tabelle erkannt? Sonst Zeile für Zeile nach Trennzeichen suchen.
         const pairs = page.pairs?.length >= 3 ? page.pairs : parse(page.text);
         found.push(...pairs.map(fixOcrAccents).map((pair) => ({ ...pair, lesson: lessonFor(i, p) })));
+        foundSentences.push(...(page.sentences ?? []).map(fixSentenceAccents).map((x) => ({ ...x, lesson: lessonFor(i, p) })));
       });
     } catch (e) {
       imp.notice = e.message;
     }
   }
   await terminateOcr();
-  finish(found, draw);
+  finish(found, draw, foundSentences);
+}
+
+/** Akzent-Lesefehler auch in Beispielsätzen korrigieren (siehe fixOcrAccents). */
+function fixSentenceAccents(sentence) {
+  return {
+    prompt: fixOcrAccents({ term: sentence.prompt, translation: '' }).term,
+    solutions: sentence.solutions.map((t) => fixOcrAccents({ term: '', translation: t }).translation),
+  };
 }
 
 async function processText(text, draw) {
@@ -361,19 +414,30 @@ async function processText(text, draw) {
   imp = { ...imp, stage: 'busy', notice: '', rawText: '' };
   const lesson = cleanLesson(imp.pasteLesson);
   let found = parse(text);
+  let sentences = [];
   if (db.settings.useAI && isConfigured()) {
     imp.message = 'Claude sortiert die Vokabeln …';
     draw();
     try {
-      found = await extractVocabulary({ text }, subject);
+      ({ pairs: found, sentences } = await extractVocabulary({ text }, subject));
     } catch (e) {
       imp.notice = `Claude konnte nicht helfen (${e.message}). Es wurde die einfache Erkennung verwendet.`;
     }
   }
-  finish(found.map((pair) => ({ ...pair, lesson })), draw);
+  finish(found.map((pair) => ({ ...pair, lesson })), draw, sentences.map((x) => ({ ...x, lesson })));
 }
 
-function finish(found, draw) {
+function finish(found, draw, sentences = []) {
+  const seenSentences = new Set();
+  imp.sentences = sentences
+    .filter((x) => x.prompt && x.solutions?.length)
+    .filter((x) => {
+      const key = normalize(x.prompt);
+      if (seenSentences.has(key)) return false;
+      seenSentences.add(key);
+      return true;
+    })
+    .map((x) => ({ prompt: x.prompt, solutions: x.solutions, lesson: x.lesson ?? '', include: true }));
   const seen = new Set();
   imp.pairs = found
     .filter((p) => p.term || p.translation)
@@ -386,7 +450,7 @@ function finish(found, draw) {
       return true;
     })
     .map((p) => ({ term: p.term ?? '', translation: p.translation ?? '', note: p.note ?? '', lesson: p.lesson ?? '', include: true }));
-  if (!imp.pairs.length) {
+  if (!imp.pairs.length && !imp.sentences.length) {
     imp.notice = `${imp.notice} Es wurden keine Vokabeln erkannt. Du kannst sie mit „＋ Zeile“ auch von Hand eintragen.`.trim();
   }
   imp.stage = 'review';
@@ -413,6 +477,21 @@ function saveImport() {
       continue;
     }
     existing.set(key, addCard(list.id, term, translation, pair.note, lesson));
+  }
+
+  // Beispielsätze
+  const knownSentences = new Map(sentencesOf([list.id]).map((x) => [normalize(x.prompt), x]));
+  for (const x of imp.sentences) {
+    const prompt = x.prompt.trim();
+    const solutions = x.solutions.map((t) => t.trim()).filter(Boolean);
+    if (!x.include || !prompt || !solutions.length) continue;
+    const lesson = cleanLesson(x.lesson);
+    const known = knownSentences.get(normalize(prompt));
+    if (known) {
+      if (lesson && !known.lesson) known.lesson = lesson;
+      continue;
+    }
+    knownSentences.set(normalize(prompt), addSentence(list.id, prompt, solutions, lesson));
   }
   save();
   return list;
