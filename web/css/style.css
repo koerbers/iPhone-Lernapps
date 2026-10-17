@@ -334,8 +334,17 @@ textarea.answer-input { font-size: 19px; margin-bottom: 8px; }
 .feedback.warn { background: var(--warn-bg); text-align: left; }
 
 .result { text-align: center; padding-top: 32px; }
-.stars { font-size: 52px; color: #f2b705; letter-spacing: 6px; }
-.stars .dim { color: var(--surface-2); }
+.big-thumb { font-size: 88px; line-height: 1.1; }
+.big-thumb.up { animation: pop 0.5s ease-out; }
+@keyframes pop { 0% { transform: scale(0.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+.thumb-count { display: flex; justify-content: center; gap: 24px; font-size: 22px; font-weight: 700; }
+.time-up { font-size: 18px; font-weight: 700; color: var(--orange); }
+.thumb { font-size: 40px; line-height: 1; margin-bottom: 4px; }
+.timer { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.timer.done { color: var(--orange); }
+.stepper { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 8px 0; font-size: 20px; }
+.stepper .icon-btn { font-size: 24px; min-width: 52px; }
+.stepper .icon-btn:disabled { opacity: 0.35; }
 .result .card { text-align: left; }
 ul.plain { list-style: none; padding: 0; margin: 0; }
 ul.plain li { padding: 4px 0; }

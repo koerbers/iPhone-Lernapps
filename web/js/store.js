@@ -12,6 +12,8 @@ const DEFAULT_SETTINGS = {
   mode: 'typing',
   useAI: true,
   claudeKey: '',
+  timerOn: true,
+  timerMinutes: 15,
 };
 
 function emptyState() {

@@ -184,7 +184,12 @@ function body(round, st) {
       </div>`;
   }
   if (st.index >= st.exercises.length) {
-    return resultScreen({ correct: st.correct, total: st.exercises.length, missed: st.missed });
+    return resultScreen({
+      correct: st.correct,
+      total: st.exercises.length,
+      missed: st.missed,
+      thumbs: { up: st.correct, down: st.exercises.length - st.correct },
+    });
   }
 
   const exercise = st.exercises[st.index];
@@ -194,7 +199,8 @@ function body(round, st) {
     const g = st.grade;
     lower = `
       <div class="feedback ${g.correct ? 'good' : 'warn'}">
-        <h2 class="${g.correct ? 'good-text' : 'warn-text'}">${g.correct ? 'Richtig! 🎉' : 'Noch nicht ganz'}</h2>
+        <div class="thumb">${g.correct ? '👍' : '👎'}</div>
+        <h2 class="${g.correct ? 'good-text' : 'warn-text'}">${g.correct ? 'Richtig!' : 'Noch nicht ganz'}</h2>
         <p>${esc(g.feedback)}</p>
         ${g.correct ? '' : `<p><strong>So wäre es richtig:</strong><br>${esc(g.correctedTranslation)}</p>`}
         <p class="muted">Musterlösung: ${esc(exercise.solution)}</p>
@@ -208,8 +214,8 @@ function body(round, st) {
         <p class="muted">War deine Übersetzung richtig?</p>
       </div>
       <div class="row">
-        <button class="btn large bad" data-action="selfNo">✗ Nein</button>
-        <button class="btn large good" data-action="selfYes">✓ Ja</button>
+        <button class="btn large bad" data-action="selfNo">👎 Nein</button>
+        <button class="btn large good" data-action="selfYes">👍 Ja</button>
       </div>`;
   } else {
     lower = `<button class="btn primary large" data-action="check" ${st.loading ? 'disabled' : ''}>${st.loading ? 'Wird geprüft …' : 'Prüfen'}</button>`;
