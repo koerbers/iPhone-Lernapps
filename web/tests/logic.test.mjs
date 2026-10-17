@@ -47,6 +47,15 @@ describe('Antwortprüfung', () => {
     assert.deepEqual(checkMeanings('warten', 'warten (auf), erwarten').missing, ['erwarten']);
     assert.equal(check('Eltern', 'der Vater, die Mutter; Pl. die Eltern'), CORRECT);
   });
+  test('Satzzeichen und Groß/klein egal: „Schau! Schaut!“', () => {
+    for (const answer of ['schau, schaut', 'Schau! Schaut!', 'schau schaut', 'SCHAU; schaut', 'schaut!']) {
+      assert.equal(check(answer, 'Schau! Schaut!'), CORRECT, answer);
+    }
+    assert.deepEqual(checkMeanings('schau, schaut', 'Schau! Schaut!').missing, []);
+    assert.deepEqual(checkMeanings('schau', 'Schau! Schaut!').missing, ['Schaut']);
+    assert.equal(check('warum', 'warum?'), CORRECT);
+    assert.equal(check('Er ist da.', 'er (sie, es) ist da'), CORRECT);
+  });
   test('Levenshtein', () => {
     assert.equal(levenshtein('kitten', 'sitting'), 3);
     assert.equal(levenshtein('', 'abc'), 3);

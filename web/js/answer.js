@@ -40,8 +40,8 @@ export function checkMeanings(input, expected) {
   });
   if (!given.length || !meanings.length) return outcome(WRONG, new Set());
 
-  // Genau richtig (alles zusammen oder einzelne Bedeutungen)
-  if (given.includes(whole)) return outcome(CORRECT, new Set(meanings.keys()));
+  // Genau richtig: alles zusammen, egal mit welchen Satzzeichen („schau, schaut“ = „Schau! Schaut!“)
+  if (whole && (normalize(input) === whole || given.includes(whole))) return outcome(CORRECT, new Set(meanings.keys()));
   const matched = new Set();
   for (const g of given) {
     variants.forEach((v, i) => {
@@ -69,9 +69,12 @@ export function alternatives(expected) {
   return [...new Set(all.filter(Boolean))];
 }
 
-/** Trennt mehrere Bedeutungen. Kommas in Klammern zählen nicht als Trenner. */
+/**
+ * Trennt mehrere Bedeutungen an Komma, Semikolon, Schrägstrich, „oder“ sowie nach ! und ?
+ * („Schau! Schaut!“ → „Schau“, „Schaut“). Kommas in Klammern zählen nicht als Trenner.
+ */
 export function split(text) {
-  let t = text;
+  let t = text.replace(/[!?]+(?=\s|$)/g, ',');
   for (const sep of [' oder ', ' or ', ';', '/', '|']) t = t.split(sep).join(',');
   const parts = [];
   let current = '';
