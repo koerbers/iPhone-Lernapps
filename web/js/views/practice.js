@@ -1,5 +1,5 @@
 // Vokabeln üben: Auswahl der Listen/Richtung/Abfrageart und die Übungsrunde selbst.
-import { CORRECT, WRONG, check } from '../answer.js';
+import { CORRECT, WRONG, checkMeanings } from '../answer.js';
 import { createSession, currentItem, recordAnswer } from '../session.js';
 import { buildSession, dueCount, shuffle } from '../srs.js';
 import { addLog, cardsOf, db, listsOf, save } from '../store.js';
@@ -138,8 +138,20 @@ function runSession(ctx) {
     check: () => {
       const input = root.querySelector('#answer');
       if (!input.value.trim()) return input.focus();
+      const item = currentItem(ctx.session);
+      const c = checkMeanings(input.value, answerOf(item.card, item.dir));
+      const named = c.matched.map((i) => c.meanings[i]);
       ctx.ui.input = input.value;
-      ctx.ui.result = check(input.value, answerOf(currentItem(ctx.session).card, currentItem(ctx.session).dir));
+      if (item.moreOf) {
+        // Gesucht ist eine Bedeutung, die noch nicht genannt wurde
+        const fresh = named.filter((m) => !item.moreOf.includes(m));
+        ctx.ui.result = fresh.length ? c.result : WRONG;
+        ctx.ui.repeated = !fresh.length && c.result !== WRONG;
+      } else {
+        ctx.ui.result = c.result;
+        ctx.ui.given = named;
+        ctx.ui.missing = c.result === WRONG ? [] : c.missing;
+      }
       draw(root, ctx);
       root.querySelector('[data-action=next]')?.focus();
     },
@@ -154,7 +166,7 @@ function runSession(ctx) {
       ctx.ui.revealed = true;
       draw(root, ctx);
     },
-    next: () => next(root, ctx, ctx.ui.result !== WRONG),
+    next: () => next(root, ctx, ctx.ui.result !== WRONG, { given: ctx.ui.given, missing: ctx.ui.missing }),
     override: () => next(root, ctx, true),
     knew: () => next(root, ctx, true),
     didntKnow: () => next(root, ctx, false),
@@ -167,8 +179,8 @@ function runSession(ctx) {
   root.querySelector('#answer')?.focus();
 }
 
-function next(root, ctx, correct) {
-  addLog(recordAnswer(ctx.session, correct));
+function next(root, ctx, correct, details = {}) {
+  addLog(recordAnswer(ctx.session, correct, Date.now(), details));
   save();
   prepare(ctx);
   draw(root, ctx);
@@ -210,11 +222,11 @@ function draw(root, ctx) {
         <span class="muted">${session.queue.length - session.index}</span>
       </header>
       <p class="muted center">${dirLabel(session.subject, item.dir)}</p>
-      ${item.attempt > 0 ? '<p class="again">↻ Noch einmal!</p>' : ''}
+      ${item.moreOf ? '<p class="again">↻ Noch eine Bedeutung!</p>' : item.attempt > 0 ? '<p class="again">↻ Noch einmal!</p>' : ''}
       <div class="prompt-card">
         <div class="prompt">${esc(prompt)}</div>
         ${english && item.dir === 'fwd' ? speakButton(prompt) : ''}
-        ${item.card.note ? `<div class="muted">${esc(item.card.note)}</div>` : ''}
+        ${item.moreOf ? `<div class="muted">Du kennst schon: <strong>${esc(item.moreOf.join(', '))}</strong><br>Nenne eine weitere Bedeutung!</div>` : ''}
       </div>
       ${modeArea(ctx, item, answer, english)}
     </div>`;
@@ -237,13 +249,14 @@ function modeArea(ctx, item, answer, english) {
           return `<button class="btn choice ${cls}" data-action="pick" data-index="${i}">${esc(choice)}</button>`;
         }).join('')}
       </div>
-      ${result ? feedback(result, answer, speakAnswer) + '<button class="btn primary large" data-action="next">Weiter</button>' : ''}`;
+      ${result ? feedback(ctx, item, answer, speakAnswer) + '<button class="btn primary large" data-action="next">Weiter</button>' : ''}`;
   }
 
   if (ctx.mode === 'flashcard') {
     if (!ctx.ui.revealed) return '<button class="btn primary large" data-action="reveal">Aufdecken</button>';
     return `
       <div class="revealed">${esc(answer)} ${speakAnswer}</div>
+      ${grammar(item, ctx.session.subject)}
       <p class="muted center">Wusstest du es?</p>
       <div class="row">
         <button class="btn large bad" data-action="didntKnow">✗ Nein</button>
@@ -258,7 +271,7 @@ function modeArea(ctx, item, answer, english) {
         autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done" ${result ? 'disabled' : ''}>
     </form>
     ${result ? `
-      ${feedback(result, answer, speakAnswer)}
+      ${feedback(ctx, item, answer, speakAnswer)}
       <div class="row">
         ${result === WRONG ? '<button class="btn large" data-action="override">Ich hatte recht</button>' : ''}
         <button class="btn primary large" data-action="next">Weiter</button>
@@ -269,16 +282,40 @@ function modeArea(ctx, item, answer, english) {
       </div>`}`;
 }
 
-function feedback(result, answer, speakAnswer) {
+function feedback(ctx, item, answer, speakAnswer) {
+  const { result, missing = [], repeated } = ctx.ui;
   const title = {
     correct: '<h2 class="good-text">Richtig! 🎉</h2>',
     almost: '<h2 class="good-text">Fast richtig – kleiner Tippfehler 👍</h2>',
     wrong: '<h2 class="bad-text">Leider falsch</h2>',
   }[result];
+
+  let solution = '';
+  if (item.moreOf) {
+    solution = `${repeated ? '<p>Die hattest du schon genannt – gesucht war eine andere.</p>' : ''}
+      <p>Alle Bedeutungen: <strong>${esc(answer)}</strong></p>`;
+  } else if (result === WRONG || result === 'almost') {
+    solution = `<p class="big">Lösung: <strong>${esc(answer)}</strong></p>`;
+  } else if (missing.length && item.dir === 'fwd') {
+    solution = `<p>Weitere Bedeutungen: <strong>${esc(missing.join(', '))}</strong><br>
+      <span class="muted small">Die fragen wir gleich nochmal ab.</span></p>`;
+  } else if (missing.length) {
+    solution = `<p>Vollständig: <strong>${esc(answer)}</strong></p>`;
+  }
+
   return `
     <div class="feedback ${result === WRONG ? 'bad' : 'good'}">
       ${title}
-      ${result !== CORRECT ? `<p class="big">Lösung: <strong>${esc(answer)}</strong></p>` : ''}
+      ${solution}
+      ${grammar(item, ctx.session.subject)}
       ${speakAnswer}
     </div>`;
+}
+
+/** Grammatik/Notiz wird erst nach der Antwort aufgedeckt. */
+function grammar(item, subject) {
+  const note = item.card.note;
+  if (!note) return '';
+  const label = subject === 'latin' ? 'Grammatik' : 'Notiz';
+  return `<p class="grammar">${label}: <strong>${esc(note)}</strong></p>`;
 }

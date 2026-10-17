@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { ALMOST, CORRECT, WRONG, check, levenshtein } from '../js/answer.js';
+import { ALMOST, CORRECT, WRONG, check, checkMeanings, levenshtein } from '../js/answer.js';
 import { fixOcrAccents, parse } from '../js/parser.js';
 import { tableToPairs } from '../js/layout.js';
 import { createSession, currentItem, recordAnswer } from '../js/session.js';
@@ -38,6 +38,14 @@ describe('Antwortprüfung', () => {
     assert.equal(check('Katze', 'Hund'), WRONG);
     assert.equal(check('', 'Hund'), WRONG);
     assert.equal(check('et', 'ut'), WRONG); // kurze Wörter: kein Tippfehler-Bonus
+  });
+  test('meldet genannte und fehlende Bedeutungen', () => {
+    const c = checkMeanings('Herrin', 'die Herrin, die Dame');
+    assert.equal(c.result, CORRECT);
+    assert.deepEqual(c.missing, ['die Dame']);
+    assert.deepEqual(checkMeanings('Herrin, Dame', 'die Herrin, die Dame').missing, []);
+    assert.deepEqual(checkMeanings('warten', 'warten (auf), erwarten').missing, ['erwarten']);
+    assert.equal(check('Eltern', 'der Vater, die Mutter; Pl. die Eltern'), CORRECT);
   });
   test('Levenshtein', () => {
     assert.equal(levenshtein('kitten', 'sitting'), 3);
@@ -198,6 +206,34 @@ describe('Übungsrunde', () => {
     assert.equal(logs.filter(Boolean).length, 5);
     assert.equal(cards[0].fwd.box, 1);
     assert.deepEqual(session.missed.map((c) => c.id), ['a']);
+  });
+});
+
+describe('Weitere Bedeutungen', () => {
+  const make = () => ['a', 'b', 'c', 'd', 'e'].map((id, i) => ({ id, createdAt: i, term: id, translation: 'x, y' }));
+
+  test('nur eine Bedeutung genannt → später nach einer weiteren fragen', () => {
+    const cards = make();
+    const session = createSession('latin', cards.map((card) => ({ card, dir: 'fwd' })));
+    recordAnswer(session, true, Date.now(), { given: ['x'], missing: ['y'] });
+    assert.equal(cards[0].fwd.box, 1); // zählt als richtig
+    assert.equal(session.queue.length, 6);
+    assert.deepEqual(session.queue[4], { card: cards[0], dir: 'fwd', attempt: 1, moreOf: ['x'] });
+    // Die Nachfrage beeinflusst die Lernkartei nicht und wird bei falscher Antwort nicht wiederholt
+    while (currentItem(session) !== session.queue[4]) recordAnswer(session, true);
+    assert.equal(recordAnswer(session, false), null);
+    assert.equal(session.queue.length, 6);
+    assert.equal(cards[0].fwd.box, 1);
+  });
+
+  test('alle Bedeutungen genannt oder Deutsch → Englisch: keine Nachfrage', () => {
+    const cards = make();
+    const s1 = createSession('english', cards.map((card) => ({ card, dir: 'fwd' })));
+    recordAnswer(s1, true, Date.now(), { given: ['x', 'y'], missing: [] });
+    assert.equal(s1.queue.length, 5);
+    const s2 = createSession('english', cards.map((card) => ({ card, dir: 'rev' })));
+    recordAnswer(s2, true, Date.now(), { given: ['x'], missing: ['y'] });
+    assert.equal(s2.queue.length, 5);
   });
 });
 

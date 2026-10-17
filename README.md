@@ -16,8 +16,10 @@ Die App gibt es in zwei Varianten, beide brauchen **keinen Mac**:
   Richtig → ein Fach weiter, längere Pause (1, 2, 4, 8, 16, 32 Tage).
   Falsch → zurück in Fach 1 und **sofort wieder fällig**. In derselben Runde kommt sie nach 3 anderen Karten noch einmal dran.
   Vokabeln, die schon oft falsch waren, kommen auch nach richtigen Antworten früher wieder.
+- **Mehrere Bedeutungen:** Eine richtige Bedeutung reicht. Gibt es weitere (z. B. „domina – die Herrin, die Dame“), kommt das Wort nach ein paar anderen Karten noch einmal: „Nenne eine weitere Bedeutung“.
+- **Grammatik** (z. B. „m“, „Adv.“, „Präp. m. Akk.“, Stammformen) wird erst nach der Antwort zusammen mit der Lösung aufgedeckt.
 - **Drei Abfragearten:** Eintippen (tolerant bei Groß/Klein, Umlauten, Artikeln, „to“, kleinen Tippfehlern; bei mehreren Bedeutungen reicht eine), Auswählen (Multiple Choice) und Karteikarte (aufdecken und selbst einschätzen).
-- **Import aus Fotos, Kamera und PDFs:** Die Texterkennung läuft auf dem Gerät. Zweispaltige Vokabellisten werden automatisch in Wort und Übersetzung zerlegt. Vor dem Speichern kann man alles prüfen und korrigieren.
+- **Import aus Fotos, Kamera und PDFs:** Die Texterkennung läuft auf dem Gerät. Vokabeltabellen aus Schulbüchern (auch abfotografiert, mit Grammatik-Spalte, Beispielsätzen und Merkhilfen) werden automatisch in Wort, Übersetzung und Grammatik zerlegt. Vor dem Speichern kann man alles prüfen und korrigieren.
 - **Sätze übersetzen:** Die KI bildet kurze, kindgerechte Sätze mit den eigenen Vokabeln (bevorzugt mit denen, die noch nicht sitzen), bewertet die Übersetzung und gibt Feedback.
 - **Erfolgskontrolle:** Serie (Tage in Folge), Trefferquote, Aktivität der letzten 14 Tage, Verteilung auf die Fächer der Lernkartei, Liste der häufigsten Fehler. Nach jeder Runde gibt es Sterne und die Liste der falschen Vokabeln.
 - Englische Wörter können vorgelesen werden.
