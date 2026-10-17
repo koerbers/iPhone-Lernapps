@@ -335,6 +335,7 @@ ul.plain li { padding: 4px 0; }
 .review-row .grow { display: flex; flex-direction: column; gap: 6px; }
 .review-row input { min-height: 40px; padding: 8px 10px; }
 .review-row input[data-field="term"] { font-weight: 700; }
+.review-row .note-input { min-height: 34px; padding: 4px 10px; font-size: 14px; color: var(--text-2); }
 .review-row.off { opacity: 0.45; }
 .icon-btn.check { color: var(--text-2); }
 .icon-btn.check.on { background: var(--accent); color: var(--accent-text); }

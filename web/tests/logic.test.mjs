@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { ALMOST, CORRECT, WRONG, check, levenshtein } from '../js/answer.js';
-import { parse } from '../js/parser.js';
+import { fixOcrAccents, parse } from '../js/parser.js';
+import { tableToPairs } from '../js/layout.js';
 import { createSession, currentItem, recordAnswer } from '../js/session.js';
 import { MAX_BOX, buildSession, isDue, newState, priority, review, startOfDay, addDays } from '../js/srs.js';
 import { streak } from '../js/stats.js';
@@ -67,6 +68,78 @@ describe('Vokabel-Erkennung', () => {
   });
   test('Wörter wie „page“ oder „unit“ bleiben Vokabeln', () => {
     assert.deepEqual(parse('page – Seite\nunit = Einheit').map((p) => p.term), ['page', 'unit']);
+  });
+});
+
+describe('Texterkennung aufräumen', () => {
+  test('Akzente', () => {
+    assert.deepEqual(fixOcrAccents({ term: 'clàmàre', translation: 'plótzlich', note: 'Práp. m. Akk.' }), {
+      term: 'clamare', translation: 'plötzlich', note: 'Präp. m. Akk.',
+    });
+    assert.equal(fixOcrAccents({ term: 'properare', translation: 'eilen', note: 'properó' }).note, 'propero');
+  });
+});
+
+describe('Vokabeltabelle (Schulbuchseite)', () => {
+  // Wörter wie von der Texterkennung: Spalten bei x = 60 (Latein), 450 (Grammatik), 920 (Deutsch), 1840 (Merkhilfe)
+  let y = 0;
+  const words = [];
+  const row = (...cells) => {
+    y += 60;
+    for (const [x, text] of cells) {
+      let cx = x;
+      for (const part of text.split(' ')) {
+        words.push({ text: part, x0: cx, x1: cx + part.length * 18, y0: y, y1: y + 30, confidence: 90 });
+        cx += part.length * 18 + 12;
+      }
+    }
+  };
+  row([60, 'gaudere'], [920, 'sich freuen'], [1840, 'Gaudi']);
+  row([60, 'equus'], [450, 'm'], [920, 'das Pferd']);
+  row([60, 'est'], [450, '3. Pers. Sg.'], [920, 'er ist']);
+  row([920, 'Ibi Davus est.']); // Beispielsatz
+  row([920, 'Dort ist Davus.']);
+  row([60, 'servus'], [450, 'm'], [920, 'der Sklave'], [1300, 'MEM']); // Störung mitten in der Zeile
+  row([290, 'mE'], [560, 'MEM']); // Störungen aus Tabellenlinien
+  row([60, 'tandem'], [450, 'Adv.'], [920, 'endlich']);
+  row([60, 'videre'], [920, 'sehen'], [1840, 'Video']);
+
+  test('Spalten, Notizen, Beispielsätze und Merkhilfen', () => {
+    assert.deepEqual(tableToPairs(words, 2200), [
+      { term: 'gaudere', translation: 'sich freuen', note: '' },
+      { term: 'equus', translation: 'das Pferd', note: 'm' },
+      { term: 'est', translation: 'er ist', note: '3. Pers. Sg.' },
+      { term: 'servus', translation: 'der Sklave', note: 'm' },
+      { term: 'tandem', translation: 'endlich', note: 'Adv.' },
+      { term: 'videre', translation: 'sehen', note: '' },
+    ]);
+  });
+
+  test('Stammformen-Spalte wird nicht mit der Übersetzung verwechselt', () => {
+    const w = [];
+    [['parens', 'parentis mf', 'der Vater, die Mutter'], ['currere', 'curro, cucurri', 'laufen, eilen'],
+      ['pater', 'patris m', 'der Vater'], ['mons', 'montis m', 'der Berg']].forEach(([a, b, c], i) => {
+      for (const [x, text] of [[60, a], [500, b], [970, c]]) {
+        let cx = x;
+        for (const part of text.split(' ')) {
+          w.push({ text: part, x0: cx, x1: cx + part.length * 18, y0: i * 60, y1: i * 60 + 30 });
+          cx += part.length * 18 + 12;
+        }
+      }
+    });
+    assert.deepEqual(tableToPairs(w, 2200)[0], { term: 'parens', translation: 'der Vater, die Mutter', note: 'parentis mf' });
+  });
+
+  test('Übersetzung etwas tiefer als das Wort (schräges Foto)', () => {
+    const w = [
+      ...['equus', 'servus', 'videre'].flatMap((t, i) => [
+        { text: t, x0: 60, x1: 160, y0: i * 60, y1: i * 60 + 30 },
+        { text: 'xx', x0: 920, x1: 980, y0: i * 60, y1: i * 60 + 30 },
+      ]),
+      { text: 'audere', x0: 60, x1: 180, y0: 200, y1: 230 },
+      { text: 'wagen', x0: 920, x1: 1020, y0: 222, y1: 252 },
+    ];
+    assert.deepEqual(tableToPairs(w, 2200).at(-1), { term: 'audere', translation: 'wagen', note: '' });
   });
 });
 
