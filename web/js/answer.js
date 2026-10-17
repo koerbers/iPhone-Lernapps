@@ -1,7 +1,7 @@
 // Vergleicht eine eingetippte Antwort tolerant mit der Lösung.
 // - Groß-/Kleinschreibung, Satzzeichen, Akzente sind egal.
 // - ä/ae, ö/oe, ü/ue, ß/ss werden gleich behandelt.
-// - Artikel (der/die/das, the/a) und „to“ vor englischen Verben sind optional.
+// - Artikel (der/die/das, the/a), Personalpronomen (er/sie/es …) und „to“ vor englischen Verben sind optional.
 // - Klammerinhalte sind optional: „(sich) freuen“ = „freuen“.
 // - Bei mehreren Bedeutungen („Haus, Gebäude“) reicht eine davon. checkMeanings() meldet
 //   zusätzlich, welche Bedeutungen noch fehlen (die werden später nochmal abgefragt).
@@ -15,6 +15,8 @@ const OPTIONAL_PREFIXES = [
   'to ', 'the ', 'a ', 'an ',
   'der ', 'die ', 'das ', 'den ', 'dem ', 'des ', 'ein ', 'eine ', 'einen ', 'sich ',
   'pl ', 'subst ', // Abkürzungen aus Schulbüchern: „Pl. die Eltern“, „Subst. der Grieche“
+  // Personalpronomen: „er (sie, es) ist“ = „ist“ = „sie ist“ = „es ist“
+  'ich ', 'du ', 'er ', 'sie ', 'es ', 'wir ', 'ihr ',
 ];
 
 export function check(input, expected) {

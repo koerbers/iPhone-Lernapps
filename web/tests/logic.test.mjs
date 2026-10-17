@@ -47,6 +47,16 @@ describe('Antwortprüfung', () => {
     assert.deepEqual(checkMeanings('warten', 'warten (auf), erwarten').missing, ['erwarten']);
     assert.equal(check('Eltern', 'der Vater, die Mutter; Pl. die Eltern'), CORRECT);
   });
+  test('Personalpronomen sind optional: „er (sie, es) ist“', () => {
+    for (const answer of ['er ist', 'sie ist', 'es ist', 'ist', 'er/sie/es ist']) {
+      assert.equal(check(answer, 'er (sie, es) ist, befindet sich'), CORRECT, answer);
+    }
+    assert.deepEqual(checkMeanings('sie ist, befindet sich', 'er (sie, es) ist, befindet sich').missing, []);
+    assert.equal(check('sind', 'sie sind, befinden sich'), CORRECT);
+    assert.equal(check('ist da', 'er (sie, es) ist da'), CORRECT);
+    assert.equal(check('ihr', 'ihr'), CORRECT); // „vos – ihr“ bleibt abfragbar
+    assert.equal(check('wir', 'ihr'), WRONG);
+  });
   test('Satzzeichen und Groß/klein egal: „Schau! Schaut!“', () => {
     for (const answer of ['schau, schaut', 'Schau! Schaut!', 'schau schaut', 'SCHAU; schaut', 'schaut!']) {
       assert.equal(check(answer, 'Schau! Schaut!'), CORRECT, answer);
@@ -195,9 +205,23 @@ describe('Lernkartei', () => {
       { id: 'd', createdAt: 4 },
     ];
     const round = buildSession(cards, ['fwd'], { size: 10, maxNew: 1, now });
-    assert.deepEqual(round.map((c) => c.card.id).sort(), ['a', 'c']);
+    const ids = round.map((c) => c.card.id).sort();
+    assert.equal(ids.length, 2);
+    assert.equal(ids[0], 'a'); // die fällige Karte ist immer dabei
+    assert.ok(['c', 'd'].includes(ids[1])); // dazu eine zufällige neue
     const free = buildSession(cards, ['fwd'], { size: 10, maxNew: 1, fillWithWeak: true, now });
     assert.equal(free.length, 4);
+  });
+});
+
+describe('Zufall', () => {
+  test('neue Vokabeln kommen aus dem ganzen Vorrat, nicht nur vom Anfang', () => {
+    const cards = Array.from({ length: 300 }, (_, i) => ({ id: `k${i}`, createdAt: i }));
+    const seen = new Set();
+    for (let r = 0; r < 20; r++) {
+      for (const c of buildSession(cards, ['fwd'], { size: 10, maxNew: 10 })) seen.add(Number(c.card.id.slice(1)));
+    }
+    assert.ok(Math.max(...seen) > 150, 'auch Vokabeln aus der zweiten Hälfte');
   });
 });
 

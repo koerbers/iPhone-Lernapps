@@ -184,6 +184,18 @@ export async function renderPdfPage(page, maxDimension = OCR_SIZE) {
   return canvas;
 }
 
+/** Kleine Vorschaubilder aller Seiten einer PDF (für die Zuordnung zu Lektionen). */
+export async function pdfThumbnails(file, maxDimension = 360) {
+  const pdfjs = await loadPdfJs();
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const thumbs = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const canvas = await renderPdfPage(await pdf.getPage(i), maxDimension);
+    thumbs.push(canvas.toDataURL('image/jpeg', 0.7));
+  }
+  return thumbs;
+}
+
 /** Alle Seiten einer PDF als Bilder (für die KI). */
 export async function pdfPagesAsCanvases(file, maxDimension = 1600) {
   const pdfjs = await loadPdfJs();

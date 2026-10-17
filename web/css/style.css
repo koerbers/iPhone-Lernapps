@@ -227,6 +227,24 @@ textarea { resize: vertical; }
 
 .search { margin: 10px 0; }
 
+.lessons { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 2px 0 12px 34px; border-bottom: 1px solid var(--border); }
+.chip { position: relative; }
+.chip input { position: absolute; opacity: 0; pointer-events: none; }
+.chip span {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 15px;
+  cursor: pointer;
+}
+.chip span small { opacity: 0.75; }
+.chip input:checked + span { background: var(--accent); color: var(--accent-text); }
+.chip input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lesson-tools { font-size: 14px; color: var(--text-2); }
+.lesson-tools .link { padding: 4px 2px; font-size: 14px; }
+
 /* ---------- Listen ---------- */
 .list-group { background: var(--surface); border-radius: var(--radius); overflow: hidden; }
 .list-group.flat { background: none; }
@@ -247,6 +265,8 @@ textarea { resize: vertical; }
 }
 .list-group.flat .list-row { padding: 10px 0; cursor: default; }
 .list-row:last-child { border-bottom: none; }
+.lesson-group { margin: 10px 0; }
+.lesson-group summary { font-weight: 700; padding: 8px 4px; cursor: pointer; }
 .chevron { color: var(--text-2); font-size: 24px; }
 .danger-zone { margin-top: 24px; }
 
@@ -341,6 +361,15 @@ ul.plain li { padding: 4px 0; }
 .review-row.off { opacity: 0.45; }
 .icon-btn.check { color: var(--text-2); }
 .icon-btn.check.on { background: var(--accent); color: var(--accent-text); }
+.row.tight { gap: 6px; margin: 0; }
+.row.tight .lesson-input { flex: 0 0 38%; }
+.lesson-head { margin: 14px 0 2px; }
+.thumb-strip { display: flex; gap: 6px; align-items: center; overflow-x: auto; margin: 12px 0; }
+.thumb-strip img { height: 72px; border-radius: 6px; border: 1px solid var(--border); }
+.pages { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 80px; }
+.page-row { display: flex; gap: 12px; align-items: center; background: var(--surface); border-radius: 12px; padding: 8px; }
+.page-row img { width: 72px; border-radius: 6px; border: 1px solid var(--border); background: #fff; }
+.page-row input:not(.explicit) { color: var(--text-2); font-style: italic; }
 .raw { white-space: pre-wrap; font-size: 13px; max-height: 300px; overflow: auto; }
 .sticky-bottom {
   position: sticky;

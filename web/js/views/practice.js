@@ -2,9 +2,10 @@
 import { CORRECT, WRONG, checkMeanings } from '../answer.js';
 import { createSession, currentItem, recordAnswer } from '../session.js';
 import { buildSession, dueCount, shuffle } from '../srs.js';
-import { addLog, cardsOf, db, listsOf, save } from '../store.js';
+import { addLog, cardsOf, db, getList, lessonsOf, listsOf, save } from '../store.js';
 import { SUBJECTS, answerOf, dirLabel, promptOf } from '../subjects.js';
 import { closeOverlay, esc, onAction, openOverlay, resultScreen, speakButton, speakEnglish } from '../ui.js';
+import { cardDialog } from './lists.js';
 
 const MODES = {
   typing: '⌨️ Eintippen',
@@ -15,17 +16,21 @@ const MODES = {
 // Auswahl pro Fach merken, solange die App offen ist
 const choices = {};
 
+/** Schlüssel für eine Lektion einer Liste */
+const lessonKey = (listId, lesson) => `${listId}␟${lesson ?? ''}`;
+
 export function renderPracticeSetup(root, subjectId) {
   const subject = SUBJECTS[subjectId];
   if (!subject) return (location.hash = '#/lernen');
   const lists = listsOf(subjectId);
-  const c = (choices[subjectId] ??= { listIds: new Set(lists.map((l) => l.id)), dirChoice: 'both' });
+  // lessonOff: abgewählte Lektionen (neue Lektionen sind automatisch ausgewählt)
+  const c = (choices[subjectId] ??= { listIds: new Set(lists.map((l) => l.id)), lessonOff: new Set(), dirChoice: 'both' });
   // neu angelegte Listen automatisch auswählen
   for (const l of lists) if (!c.known?.has(l.id)) c.listIds.add(l.id);
   c.known = new Set(lists.map((l) => l.id));
 
   const dirs = selectedDirs(subjectId, c.dirChoice);
-  const cards = cardsOf([...c.listIds]);
+  const cards = cardsOf([...c.listIds]).filter((card) => !c.lessonOff.has(lessonKey(card.listId, card.lesson)));
   const counts = dueCount(cards, dirs);
 
   root.innerHTML = `
@@ -39,7 +44,8 @@ export function renderPracticeSetup(root, subjectId) {
           <input type="checkbox" data-list="${l.id}" ${c.listIds.has(l.id) ? 'checked' : ''}>
           <span>${esc(l.name)}</span>
           <span class="muted">${cardsOf([l.id]).length}</span>
-        </label>`).join('')}
+        </label>
+        ${c.listIds.has(l.id) ? lessonChips(l.id, c) : ''}`).join('')}
     </section>
 
     <section class="card">
@@ -74,6 +80,7 @@ export function renderPracticeSetup(root, subjectId) {
   root.onchange = (event) => {
     const t = event.target;
     if (t.dataset.list) t.checked ? c.listIds.add(t.dataset.list) : c.listIds.delete(t.dataset.list);
+    if (t.dataset.lesson) t.checked ? c.lessonOff.delete(t.dataset.lesson) : c.lessonOff.add(t.dataset.lesson);
     if (t.name === 'dir') c.dirChoice = t.value;
     if (t.name === 'mode') {
       db.settings.mode = t.value;
@@ -83,9 +90,40 @@ export function renderPracticeSetup(root, subjectId) {
   };
 
   onAction(root, {
+    lessonsAll: (el) => {
+      for (const lesson of lessonsOf(el.dataset.listId)) c.lessonOff.delete(lessonKey(el.dataset.listId, lesson));
+      renderPracticeSetup(root, subjectId);
+    },
+    lessonsNone: (el) => {
+      for (const lesson of lessonsOf(el.dataset.listId)) c.lessonOff.add(lessonKey(el.dataset.listId, lesson));
+      renderPracticeSetup(root, subjectId);
+    },
     start: () => start(subjectId, cards, dirs, false),
     free: () => start(subjectId, cards, dirs, true),
   });
+}
+
+/** Lektionen einer Liste zum An- und Abwählen (nur wenn die Liste Lektionen hat). */
+function lessonChips(listId, c) {
+  const lessons = lessonsOf(listId);
+  if (lessons.length === 1 && lessons[0] === '') return '';
+  const listCards = cardsOf([listId]);
+  return `
+    <div class="lessons">
+      ${lessons.map((lesson) => {
+        const key = lessonKey(listId, lesson);
+        const count = listCards.filter((card) => (card.lesson ?? '') === lesson).length;
+        return `
+          <label class="chip">
+            <input type="checkbox" data-lesson="${esc(key)}" ${c.lessonOff.has(key) ? '' : 'checked'}>
+            <span>${esc(lesson || 'ohne Lektion')} <small>${count}</small></span>
+          </label>`;
+      }).join('')}
+      <span class="lesson-tools">
+        <button class="link small" data-action="lessonsAll" data-list-id="${listId}">alle</button> ·
+        <button class="link small" data-action="lessonsNone" data-list-id="${listId}">keine</button>
+      </span>
+    </div>`;
 }
 
 function selectedDirs(subjectId, dirChoice) {
@@ -161,6 +199,12 @@ function runSession(ctx) {
       ctx.ui.picked = Number(el.dataset.index);
       ctx.ui.result = ctx.ui.choices[ctx.ui.picked] === answerOf(item.card, item.dir) ? CORRECT : WRONG;
       draw(root, ctx);
+    },
+    editCard: async () => {
+      // Lesefehler (z. B. „jam“ statt „iam“) direkt beim Üben korrigieren
+      const item = currentItem(ctx.session);
+      const list = getList(item.card.listId);
+      if (list && (await cardDialog(list, item.card))) draw(root, ctx);
     },
     reveal: () => {
       ctx.ui.revealed = true;
@@ -257,6 +301,7 @@ function modeArea(ctx, item, answer, english) {
     return `
       <div class="revealed">${esc(answer)} ${speakAnswer}</div>
       ${grammar(item, ctx.session.subject)}
+      <p class="center"><button class="link small" data-action="editCard">✏️ Vokabel korrigieren</button></p>
       <p class="muted center">Wusstest du es?</p>
       <div class="row">
         <button class="btn large bad" data-action="didntKnow">✗ Nein</button>
@@ -309,6 +354,7 @@ function feedback(ctx, item, answer, speakAnswer) {
       ${solution}
       ${grammar(item, ctx.session.subject)}
       ${speakAnswer}
+      <p><button class="link small" data-action="editCard">✏️ Vokabel korrigieren</button></p>
     </div>`;
 }
 

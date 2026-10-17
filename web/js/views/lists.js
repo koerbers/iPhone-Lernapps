@@ -1,6 +1,8 @@
 // Vokabellisten: Übersicht, einzelne Liste, Vokabeln bearbeiten.
 import { MASTERED_BOX, stateOf, weakestBox } from '../srs.js';
-import { addCard, addList, cardsOf, db, deleteCard, deleteList, getList, listsOf, resetProgress, save } from '../store.js';
+import {
+  addCard, addList, cardsOf, cleanLesson, db, deleteCard, deleteList, getList, lessonsOf, listsOf, resetProgress, save,
+} from '../store.js';
 import { SUBJECTS, SUBJECT_IDS, dirLabel } from '../subjects.js';
 import { boxIndicator, esc, formDialog, onAction } from '../ui.js';
 
@@ -67,6 +69,29 @@ export function renderListDetail(root, listId) {
   if (!list) return (location.hash = '#/listen');
   const subject = SUBJECTS[list.subject];
   const cards = cardsOf([listId]).sort((a, b) => a.createdAt - b.createdAt);
+  const lessons = lessonsOf(listId);
+  const hasLessons = !(lessons.length === 1 && lessons[0] === '');
+  const row = (c) => `
+        <button class="list-row" data-action="edit" data-id="${c.id}" data-search="${esc(`${c.term} ${c.translation}`.toLowerCase())}">
+          <div class="grow left">
+            <strong>${esc(c.term)}</strong>
+            <div class="muted">${esc(c.translation)}</div>
+          </div>
+          ${boxIndicator(weakestBox(c, subject.dirs))}
+        </button>`;
+  // Mit Lektionen: eine aufklappbare Gruppe pro Lektion
+  const body = !cards.length
+    ? '<p class="muted pad">Noch keine Vokabeln.</p>'
+    : hasLessons
+      ? lessons.map((lesson) => {
+          const inLesson = cards.filter((c) => (c.lesson ?? '') === lesson);
+          return `
+            <details class="lesson-group" open>
+              <summary>${esc(lesson || 'ohne Lektion')} <span class="muted">${inLesson.length}</span></summary>
+              <div class="list-group">${inLesson.map(row).join('')}</div>
+            </details>`;
+        }).join('')
+      : `<div class="list-group">${cards.map(row).join('')}</div>`;
 
   root.innerHTML = `
     <a class="back" href="#/listen">‹ Vokabeln</a>
@@ -78,16 +103,7 @@ export function renderListDetail(root, listId) {
       <button class="btn" data-action="rename">✏️ Umbenennen</button>
     </div>
     <input class="search" type="search" placeholder="Vokabel suchen">
-    <div class="list-group">
-      ${cards.map((c) => `
-        <button class="list-row" data-action="edit" data-id="${c.id}" data-search="${esc(`${c.term} ${c.translation}`.toLowerCase())}">
-          <div class="grow left">
-            <strong>${esc(c.term)}</strong>
-            <div class="muted">${esc(c.translation)}</div>
-          </div>
-          ${boxIndicator(weakestBox(c, subject.dirs))}
-        </button>`).join('') || '<p class="muted pad">Noch keine Vokabeln.</p>'}
-    </div>
+    ${body}
     <div class="row wrap danger-zone">
       <button class="btn" data-action="reset">Lernstand zurücksetzen</button>
       <button class="btn bad" data-action="deleteList">Liste löschen</button>
@@ -97,7 +113,9 @@ export function renderListDetail(root, listId) {
   const searchInput = root.querySelector('.search');
   searchInput.oninput = () => {
     const q = searchInput.value.trim().toLowerCase();
-    for (const row of root.querySelectorAll('[data-search]')) row.hidden = !row.dataset.search.includes(q);
+    for (const el of root.querySelectorAll('[data-search]')) el.hidden = !el.dataset.search.includes(q);
+    // Beim Suchen alle Lektionen aufklappen
+    if (q) for (const group of root.querySelectorAll('.lesson-group')) group.open = true;
   };
 
   onAction(root, {
@@ -131,7 +149,7 @@ export function renderListDetail(root, listId) {
 }
 
 /** Dialog zum Anlegen/Bearbeiten einer Vokabel. Gibt true zurück, wenn sich etwas geändert hat. */
-async function cardDialog(list, card) {
+export async function cardDialog(list, card) {
   const subject = SUBJECTS[list.subject];
   const stats = card
     ? `<div class="muted small">${subject.dirs.map((d) => {
@@ -148,7 +166,11 @@ async function cardDialog(list, card) {
       <input name="translation" required value="${esc(card?.translation)}" placeholder="z. B. Freund">
       <small class="muted">Mehrere Bedeutungen mit Komma trennen – bei der Abfrage reicht eine davon.</small>
     </label>
-    <label class="field">Notiz (optional) <input name="note" value="${esc(card?.note)}"></label>
+    <label class="field">${list.subject === 'latin' ? 'Grammatik / Notiz' : 'Notiz'} (optional) <input name="note" value="${esc(card?.note)}"></label>
+    <label class="field">Lektion (optional)
+      <input name="lesson" list="lesson-options" value="${esc(card?.lesson)}" placeholder="z. B. Lektion 3">
+      <datalist id="lesson-options">${lessonsOf(list.id).filter(Boolean).map((l) => `<option value="${esc(l)}">`).join('')}</datalist>
+    </label>
     ${card ? `<label class="check-row"><input type="checkbox" name="delete"> <span>Diese Vokabel löschen</span></label>` : ''}
     ${stats}`);
   if (!values) return false;
@@ -159,8 +181,9 @@ async function cardDialog(list, card) {
   const term = values.term.trim();
   const translation = values.translation.trim();
   if (!term || !translation) return false;
-  if (card) Object.assign(card, { term, translation, note: values.note.trim() });
-  else addCard(list.id, term, translation, values.note.trim());
+  const lesson = cleanLesson(values.lesson);
+  if (card) Object.assign(card, { term, translation, note: values.note.trim(), lesson });
+  else addCard(list.id, term, translation, values.note.trim(), lesson);
   save();
   return true;
 }

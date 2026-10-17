@@ -18,6 +18,8 @@ Die App gibt es in zwei Varianten, beide brauchen **keinen Mac**:
   Vokabeln, die schon oft falsch waren, kommen auch nach richtigen Antworten früher wieder.
 - **Mehrere Bedeutungen:** Eine richtige Bedeutung reicht. Gibt es weitere (z. B. „domina – die Herrin, die Dame“), kommt das Wort nach ein paar anderen Karten noch einmal: „Nenne eine weitere Bedeutung“.
 - **Grammatik** (z. B. „m“, „Adv.“, „Präp. m. Akk.“, Stammformen) wird erst nach der Antwort zusammen mit der Lösung aufgedeckt.
+- **Lektionen:** Beim Import fragt die App, ob die Seiten/Fotos Lektionen zugeordnet werden sollen. Beim Üben (und beim Sätze-Übersetzen) lassen sich dann einzelne Lektionen gezielt auswählen. Neue Vokabeln kommen zufällig aus dem ganzen ausgewählten Vorrat.
+- **Vokabeln korrigieren:** In der Vokabelliste antippen – oder während der Abfrage über „✏️ Vokabel korrigieren“.
 - **Drei Abfragearten:** Eintippen (tolerant bei Groß/Klein, Umlauten, Artikeln, „to“, kleinen Tippfehlern; bei mehreren Bedeutungen reicht eine), Auswählen (Multiple Choice) und Karteikarte (aufdecken und selbst einschätzen).
 - **Import aus Fotos, Kamera und PDFs:** Die Texterkennung läuft auf dem Gerät. Vokabeltabellen aus Schulbüchern (auch abfotografiert, mit Grammatik-Spalte, Beispielsätzen und Merkhilfen) werden automatisch in Wort, Übersetzung und Grammatik zerlegt. Vor dem Speichern kann man alles prüfen und korrigieren.
 - **Sätze übersetzen:** Die KI bildet kurze, kindgerechte Sätze mit den eigenen Vokabeln (bevorzugt mit denen, die noch nicht sitzen), bewertet die Übersetzung und gibt Feedback.

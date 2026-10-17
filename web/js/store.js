@@ -78,8 +78,8 @@ export function cardsOfSubject(subject) {
   return cardsOf(listsOf(subject).map((l) => l.id));
 }
 
-export function addCard(listId, term, translation, note = '') {
-  const card = { id: uid(), listId, term, translation, note, createdAt: Date.now() + db.cards.length };
+export function addCard(listId, term, translation, note = '', lesson = '') {
+  const card = { id: uid(), listId, term, translation, note, lesson, createdAt: Date.now() + db.cards.length };
   db.cards.push(card);
   return card;
 }
@@ -95,6 +95,27 @@ export function resetProgress(cards) {
     card.rev = newState();
   }
   save();
+}
+
+// ---------- Lektionen ----------
+
+/** Einheitliche Schreibweise: „3“ → „Lektion 3“ */
+export function cleanLesson(text) {
+  const t = String(text ?? '').trim();
+  return /^\d+$/.test(t) ? `Lektion ${t}` : t;
+}
+
+/** Sortiert Lektionen natürlich („Lektion 2“ vor „Lektion 10“), Vokabeln ohne Lektion zuletzt. */
+export function sortLessons(lessons) {
+  return [...lessons].sort((a, b) => {
+    if (!a || !b) return a ? -1 : b ? 1 : 0;
+    return a.localeCompare(b, 'de', { numeric: true });
+  });
+}
+
+/** Alle Lektionen einer Liste ('' = Vokabeln ohne Lektion). */
+export function lessonsOf(listId) {
+  return sortLessons(new Set(cardsOf([listId]).map((c) => c.lesson ?? '')));
 }
 
 // ---------- Protokoll ----------

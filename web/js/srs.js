@@ -76,15 +76,22 @@ export function totalWrong(card, dirs) {
 
 /**
  * Stellt die Abfragen für eine Übungsrunde zusammen.
- * Fällige Karten (dringendste zuerst) haben Vorrang, dann kommen neue dazu.
+ * Fällige Karten (dringendste zuerst) haben Vorrang, dann kommen neue dazu (zufällig ausgewählt).
  * Mit fillWithWeak wird bis zur Rundengröße mit den schwächsten Karten aufgefüllt.
  */
 export function buildSession(cards, dirs, { size = 20, maxNew = 10, fillWithWeak = false, now = Date.now() } = {}) {
-  const all = cards.flatMap((card) => dirs.map((dir) => ({ card, dir, state: stateOf(card, dir) })));
-  const byPriority = (a, b) => priority(b.state, now) - priority(a.state, now);
+  // Etwas Zufall, damit bei gleicher Dringlichkeit nicht immer dieselben Vokabeln drankommen
+  const all = cards.flatMap((card) =>
+    dirs.map((dir) => {
+      const state = stateOf(card, dir);
+      return { card, dir, state, rank: priority(state, now) + Math.random() * 0.5 };
+    }),
+  );
+  const byPriority = (a, b) => b.rank - a.rank;
 
   const due = all.filter((c) => c.state.box > 0 && c.state.due <= now).sort(byPriority);
-  const fresh = all.filter((c) => c.state.box === 0).sort((a, b) => a.card.createdAt - b.card.createdAt);
+  // Neue Vokabeln zufällig aus dem ganzen Vorrat (nicht in der Reihenfolge des Imports)
+  const fresh = shuffle(all.filter((c) => c.state.box === 0));
 
   let picked = due.slice(0, size);
   const freeSlots = Math.max(0, size - picked.length);

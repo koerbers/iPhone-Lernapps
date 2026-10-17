@@ -2,7 +2,7 @@
 import { gradeTranslation, isConfigured, makeSentences } from '../ai.js';
 import { normalize } from '../answer.js';
 import { priority, stateOf } from '../srs.js';
-import { addLog, cardsOf, listsOf, save } from '../store.js';
+import { addLog, cardsOf, lessonsOf, listsOf, save } from '../store.js';
 import { SUBJECTS, sourceLang, targetLang } from '../subjects.js';
 import { closeOverlay, esc, onAction, openOverlay, resultScreen, speakButton, speakEnglish } from '../ui.js';
 
@@ -12,7 +12,9 @@ export function renderSentenceSetup(root, subjectId) {
   const subject = SUBJECTS[subjectId];
   if (!subject) return (location.hash = '#/lernen');
   const lists = listsOf(subjectId);
-  const c = (choices[subjectId] ??= { listId: '', dir: 'fwd', count: 5 });
+  const c = (choices[subjectId] ??= { listId: '', lesson: null, dir: 'fwd', count: 5 });
+  const lessons = c.listId ? lessonsOf(c.listId) : [];
+  const hasLessons = lessons.some(Boolean);
 
   root.innerHTML = `
     <a class="back" href="#/lernen">‹ Lernen</a>
@@ -24,6 +26,13 @@ export function renderSentenceSetup(root, subjectId) {
           ${lists.map((l) => `<option value="${l.id}" ${c.listId === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}
         </select>
       </label>
+      ${hasLessons ? `
+        <label class="field">Lektion
+          <select name="lesson">
+            <option value="*">alle Lektionen</option>
+            ${lessons.map((l) => `<option value="${esc(l)}" ${c.lesson === l ? 'selected' : ''}>${esc(l || 'ohne Lektion')}</option>`).join('')}
+          </select>
+        </label>` : ''}
       ${subjectId === 'english' ? `
         <div class="segmented">
           ${[['fwd', 'EN → DE'], ['rev', 'DE → EN']].map(([v, label]) => `
@@ -43,7 +52,12 @@ export function renderSentenceSetup(root, subjectId) {
 
   root.onchange = (event) => {
     const t = event.target;
-    if (t.name === 'list') c.listId = t.value;
+    if (t.name === 'list') {
+      c.listId = t.value;
+      c.lesson = null;
+      renderSentenceSetup(root, subjectId);
+    }
+    if (t.name === 'lesson') c.lesson = t.value === '*' ? null : t.value;
     if (t.name === 'dir') c.dir = t.value;
     if (t.name === 'count') c.count = Number(t.value);
   };
@@ -52,7 +66,8 @@ export function renderSentenceSetup(root, subjectId) {
     start: () => {
       const ids = c.listId ? [c.listId] : lists.map((l) => l.id);
       const dir = subjectId === 'latin' ? 'fwd' : c.dir;
-      const words = pickWords(cardsOf(ids), dir, 12);
+      const cards = cardsOf(ids).filter((card) => c.lesson == null || (card.lesson ?? '') === c.lesson);
+      const words = pickWords(cards, dir, 12);
       if (!words.length) return alert('Diese Liste enthält noch keine Vokabeln.');
       runRound({ subject: subjectId, dir, words, count: c.count });
     },
