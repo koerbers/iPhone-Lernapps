@@ -1,0 +1,166 @@
+// Vokabellisten: Übersicht, einzelne Liste, Vokabeln bearbeiten.
+import { MASTERED_BOX, stateOf, weakestBox } from '../srs.js';
+import { addCard, addList, cardsOf, db, deleteCard, deleteList, getList, listsOf, resetProgress, save } from '../store.js';
+import { SUBJECTS, SUBJECT_IDS, dirLabel } from '../subjects.js';
+import { boxIndicator, esc, formDialog, onAction } from '../ui.js';
+
+export function renderLists(root) {
+  root.innerHTML = `
+    <div class="row between">
+      <h1>Vokabeln</h1>
+    </div>
+    <div class="row">
+      <a class="btn primary" href="#/import">📷 Importieren</a>
+      <button class="btn" data-action="newList">＋ Neue Liste</button>
+    </div>
+    ${db.lists.length ? '' : `
+      <section class="card center">
+        <div class="emoji-big">📚</div>
+        <p class="muted">Noch keine Listen. Importiere Vokabeln aus einem Foto oder einer PDF – oder lege eine leere Liste an.</p>
+      </section>`}
+    ${SUBJECT_IDS.map((sid) => {
+      const lists = listsOf(sid).sort((a, b) => b.createdAt - a.createdAt);
+      if (!lists.length) return '';
+      return `
+        <h2 class="section-title">${SUBJECTS[sid].flag} ${SUBJECTS[sid].name}</h2>
+        <div class="list-group">${lists.map((l) => listRow(l, sid)).join('')}</div>`;
+    }).join('')}
+  `;
+
+  onAction(root, {
+    newList: async () => {
+      const list = await newListDialog();
+      if (list) location.hash = `#/liste/${list.id}`;
+    },
+  });
+}
+
+function listRow(list, sid) {
+  const cards = cardsOf([list.id]);
+  const mastered = cards.filter((c) => weakestBox(c, SUBJECTS[sid].dirs) >= MASTERED_BOX).length;
+  const pct = cards.length ? Math.round((mastered / cards.length) * 100) : 0;
+  return `
+    <a class="list-row" href="#/liste/${list.id}">
+      <div class="grow">
+        <strong>${esc(list.name)}</strong>
+        <div class="row between muted small"><span>${cards.length} Vokabeln</span><span>${pct} % sitzen</span></div>
+        <div class="progress thin"><div style="width:${pct}%"></div></div>
+      </div>
+      <span class="chevron">›</span>
+    </a>`;
+}
+
+export async function newListDialog() {
+  const values = await formDialog('Neue Liste', `
+    <label class="field">Name <input name="name" required placeholder="z. B. Unit 3 oder Lektion 12"></label>
+    <label class="field">Fach
+      <select name="subject">${SUBJECT_IDS.map((s) => `<option value="${s}">${SUBJECTS[s].flag} ${SUBJECTS[s].name}</option>`).join('')}</select>
+    </label>`, 'Anlegen');
+  if (!values?.name?.trim()) return null;
+  return addList(values.name.trim(), values.subject);
+}
+
+// ---------- Eine Liste ----------
+
+export function renderListDetail(root, listId) {
+  const list = getList(listId);
+  if (!list) return (location.hash = '#/listen');
+  const subject = SUBJECTS[list.subject];
+  const cards = cardsOf([listId]).sort((a, b) => a.createdAt - b.createdAt);
+
+  root.innerHTML = `
+    <a class="back" href="#/listen">‹ Vokabeln</a>
+    <h1>${esc(list.name)}</h1>
+    <p class="muted">${subject.flag} ${subject.name} · ${cards.length} Vokabeln</p>
+    <div class="row wrap">
+      <button class="btn primary" data-action="add">＋ Vokabel</button>
+      <a class="btn" href="#/import/${listId}">📷 Importieren</a>
+      <button class="btn" data-action="rename">✏️ Umbenennen</button>
+    </div>
+    <input class="search" type="search" placeholder="Vokabel suchen">
+    <div class="list-group">
+      ${cards.map((c) => `
+        <button class="list-row" data-action="edit" data-id="${c.id}" data-search="${esc(`${c.term} ${c.translation}`.toLowerCase())}">
+          <div class="grow left">
+            <strong>${esc(c.term)}</strong>
+            <div class="muted">${esc(c.translation)}</div>
+          </div>
+          ${boxIndicator(weakestBox(c, subject.dirs))}
+        </button>`).join('') || '<p class="muted pad">Noch keine Vokabeln.</p>'}
+    </div>
+    <div class="row wrap danger-zone">
+      <button class="btn" data-action="reset">Lernstand zurücksetzen</button>
+      <button class="btn bad" data-action="deleteList">Liste löschen</button>
+    </div>
+  `;
+
+  const searchInput = root.querySelector('.search');
+  searchInput.oninput = () => {
+    const q = searchInput.value.trim().toLowerCase();
+    for (const row of root.querySelectorAll('[data-search]')) row.hidden = !row.dataset.search.includes(q);
+  };
+
+  onAction(root, {
+    add: async () => {
+      if (await cardDialog(list)) renderListDetail(root, listId);
+    },
+    edit: async (el) => {
+      if (await cardDialog(list, db.cards.find((c) => c.id === el.dataset.id))) renderListDetail(root, listId);
+    },
+    rename: async () => {
+      const v = await formDialog('Liste umbenennen', `<label class="field">Name <input name="name" required value="${esc(list.name)}"></label>`);
+      if (v?.name?.trim()) {
+        list.name = v.name.trim();
+        save();
+        renderListDetail(root, listId);
+      }
+    },
+    reset: () => {
+      if (confirm('Lernstand dieser Liste zurücksetzen? Alle Vokabeln gelten danach wieder als neu.')) {
+        resetProgress(cardsOf([listId]));
+        renderListDetail(root, listId);
+      }
+    },
+    deleteList: () => {
+      if (confirm(`Liste „${list.name}“ mit allen Vokabeln löschen?`)) {
+        deleteList(listId);
+        location.hash = '#/listen';
+      }
+    },
+  });
+}
+
+/** Dialog zum Anlegen/Bearbeiten einer Vokabel. Gibt true zurück, wenn sich etwas geändert hat. */
+async function cardDialog(list, card) {
+  const subject = SUBJECTS[list.subject];
+  const stats = card
+    ? `<div class="muted small">${subject.dirs.map((d) => {
+        const s = stateOf(card, d);
+        return `${dirLabel(list.subject, d)}: Fach ${s.box} · ${s.correct}× richtig · ${s.wrong}× falsch`;
+      }).join('<br>')}</div>`
+    : '';
+  const values = await formDialog(card ? 'Vokabel bearbeiten' : 'Neue Vokabel', `
+    <label class="field">${subject.name}
+      <input name="term" required autocapitalize="off" autocorrect="off" value="${esc(card?.term)}"
+        placeholder="${list.subject === 'latin' ? 'z. B. amicus, -i m.' : 'z. B. to go, went, gone'}">
+    </label>
+    <label class="field">Deutsch
+      <input name="translation" required value="${esc(card?.translation)}" placeholder="z. B. Freund">
+      <small class="muted">Mehrere Bedeutungen mit Komma trennen – bei der Abfrage reicht eine davon.</small>
+    </label>
+    <label class="field">Notiz (optional) <input name="note" value="${esc(card?.note)}"></label>
+    ${card ? `<label class="check-row"><input type="checkbox" name="delete"> <span>Diese Vokabel löschen</span></label>` : ''}
+    ${stats}`);
+  if (!values) return false;
+  if (card && values.delete) {
+    deleteCard(card.id);
+    return true;
+  }
+  const term = values.term.trim();
+  const translation = values.translation.trim();
+  if (!term || !translation) return false;
+  if (card) Object.assign(card, { term, translation, note: values.note.trim() });
+  else addCard(list.id, term, translation, values.note.trim());
+  save();
+  return true;
+}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Vokabeltrainer</title>
+  <meta name="description" content="Vokabeln lernen für Englisch und Latein">
+  <meta name="theme-color" content="#2a78d6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Vokabeln">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main id="app" class="page"></main>
+
+  <!-- Vollbild-Ebene für Übungsrunden -->
+  <div id="overlay" class="overlay" hidden></div>
+
+  <nav class="tabbar" aria-label="Hauptmenü">
+    <a href="#/lernen" data-tab="lernen"><span>🎓</span>Lernen</a>
+    <a href="#/listen" data-tab="listen"><span>📚</span>Vokabeln</a>
+    <a href="#/erfolge" data-tab="erfolge"><span>📊</span>Erfolge</a>
+    <a href="#/einstellungen" data-tab="einstellungen"><span>⚙️</span>Einstellungen</a>
+  </nav>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
