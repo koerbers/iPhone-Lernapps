@@ -43,7 +43,7 @@ export function renderProfiles(root) {
 export async function profileDialog(profile) {
   const age = profile?.age ?? '';
   const chosen = profile?.avatar ?? AVATARS[profiles.list.length % AVATARS.length];
-  const values = await formDialog(profile ? 'Profil bearbeiten' : 'Neues Kind', `
+  const pending = formDialog(profile ? 'Profil bearbeiten' : 'Neues Kind', `
     <label class="field">Name <input name="name" required value="${esc(profile?.name ?? '')}" placeholder="z. B. Lia"></label>
     <label class="field">Alter
       <select name="age">
@@ -61,9 +61,8 @@ export async function profileDialog(profile) {
       <small class="muted">Eigenes Bild</small>
       <div class="avatar-picker">
         ${profile?.avatarImage ? `
-          <label><input type="radio" name="avatar" value="${IMAGE}" checked><span><img class="avatar-img" src="${profile.avatarImage}" alt="Eigenes Bild"></span></label>` : ''}
-        <label class="avatar-upload"><input type="file" name="avatarFile" accept="image/*"
-          onchange="this.closest('form').querySelectorAll('[name=avatar]').forEach((r) => (r.checked = false))"><span>📷</span></label>
+          <label><input type="radio" name="avatar" value="${IMAGE}" checked><span><img class="avatar-img" src="${esc(profile.avatarImage)}" alt="Eigenes Bild"></span></label>` : ''}
+        <label class="avatar-upload"><input type="file" name="avatarFile" accept="image/*"><span>📷</span></label>
       </div>
       <small class="muted">Ein Foto oder Bild vom Gerät, z. B. die Lieblingsfigur. Es bleibt nur auf diesem Gerät.</small>
     </div>
@@ -74,6 +73,10 @@ export async function profileDialog(profile) {
       </select>
       <small class="muted">Automatisch: bis 10 Jahre leicht, 11–12 mittel, ab 13 schwer.</small>
     </label>`, profile ? 'Sichern' : 'Anlegen');
+  // Eigenes Bild gewählt → Emoji-Auswahl aufheben
+  const form = document.querySelector('dialog[open] form');
+  form?.avatarFile.addEventListener('change', () => form.querySelectorAll('[name=avatar]').forEach((r) => (r.checked = false)));
+  const values = await pending;
   if (!values?.name?.trim()) return null;
   const file = values.avatarFile?.size ? values.avatarFile : null;
   let avatarImage = values.avatar === IMAGE ? profile.avatarImage : null;

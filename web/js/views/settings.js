@@ -5,6 +5,7 @@ import {
   activeProfile, avatarHtml, db, deleteProfile, exportBackup, getClaudeKey, importBackup, insertSampleData, profiles,
   resetProgress, save, setClaudeKey, switchProfile,
 } from '../store.js';
+import { changeParentCode, hasParentCode, removeParentCode, requireParent, setupParentCode } from '../parent.js';
 import { esc, onAction } from '../ui.js';
 import { levelSummary, profileDialog } from './profiles.js';
 
@@ -66,6 +67,18 @@ export function renderSettings(root) {
     </section>
 
     <section class="card">
+      <h3>🔒 Eltern-Code</h3>
+      <p class="hint">Lernstand und Statistik zurücksetzen, Listen, Vokabeln oder Kinder löschen und eine Sicherung laden
+      geht nur mit dem Eltern-Code. Nach richtiger Eingabe wird 5 Minuten lang nicht erneut gefragt.</p>
+      <div class="row wrap">
+        ${hasParentCode()
+          ? '<button class="btn" data-action="changeCode">Code ändern</button><button class="btn" data-action="removeCode">Code entfernen</button>'
+          : '<button class="btn primary" data-action="setCode">Code festlegen</button>'}
+      </div>
+      <p class="small">${hasParentCode() ? '✅ Eltern-Code ist eingerichtet' : 'Noch kein Code – er wird spätestens beim ersten Löschen festgelegt.'}</p>
+    </section>
+
+    <section class="card">
       <h3>🤖 Künstliche Intelligenz (Claude) – für alle Kinder</h3>
       <p class="hint">Die KI liest Vokabeln aus Fotos/PDFs (auch Handschrift) und bildet Übungssätze passend zum Alter.
       Dafür braucht es einen API-Schlüssel von
@@ -104,6 +117,10 @@ export function renderSettings(root) {
     const t = event.target;
     if (t.name === 'sessionSize' || t.name === 'maxNew') s[t.name] = Number(t.value);
     if (t.name === 'backup' && t.files[0]) {
+      if (!(await requireParent('Eine Sicherung laden (ersetzt Lernstand und Statistik)'))) {
+        t.value = '';
+        return;
+      }
       try {
         const reload = importBackup(await t.files[0].text());
         alert('Sicherung geladen ✅');
@@ -134,8 +151,9 @@ export function renderSettings(root) {
       renderSettings(root);
     },
     switch: (el) => switchProfile(el.dataset.id),
-    deleteProfile: (el) => {
+    deleteProfile: async (el) => {
       const p = profiles.list.find((x) => x.id === el.dataset.id);
+      if (!(await requireParent(`${p.name} löschen`))) return;
       if (!confirm(`${p.name} mit allen Vokabeln, Lernstand und Statistik löschen? Das lässt sich nicht rückgängig machen.`)) return;
       const wasActive = p.id === profile.id;
       deleteProfile(p.id);
@@ -166,7 +184,17 @@ export function renderSettings(root) {
       insertSampleData();
       renderSettings(root);
     },
-    reset: () => {
+    setCode: async () => {
+      if (await setupParentCode()) renderSettings(root);
+    },
+    changeCode: async () => {
+      if (await changeParentCode()) alert('Neuer Eltern-Code gespeichert ✅');
+    },
+    removeCode: async () => {
+      if (await removeParentCode()) renderSettings(root);
+    },
+    reset: async () => {
+      if (!(await requireParent(`Lernstand und Statistik von ${profile.name} zurücksetzen`))) return;
       if (confirm(`Lernstand von ${profile.name} zurücksetzen? Die Vokabeln bleiben erhalten, aber alle gelten wieder als neu und die Statistik wird gelöscht.`)) {
         resetProgress(db.cards);
         db.logs = [];

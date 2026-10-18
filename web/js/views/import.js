@@ -2,7 +2,7 @@
 // Ablauf: Quelle wählen → (Frage: Seiten Lektionen zuordnen?) → Erkennen → Prüfen → Speichern
 import { extractVocabulary, isConfigured } from '../ai.js';
 import { normalize } from '../answer.js';
-import { fixOcrAccents, parse, parseText } from '../parser.js';
+import { fixLatinInfinitive, fixOcrAccents, parse, parseText } from '../parser.js';
 import {
   READABLE_QUALITY, canvasToJpegBase64, pdfPagesAsCanvases, pdfThumbnails, recognizeImage, recognizePdf, terminateOcr,
   toCanvas,
@@ -511,7 +511,8 @@ function finish(found, draw, sentences = []) {
       seen.add(key);
       return true;
     })
-    .map((p) => ({ term: p.term ?? '', translation: p.translation ?? '', note: p.note ?? '', lesson: p.lesson ?? '', include: true }));
+    .map((p) => ({ term: p.term ?? '', translation: p.translation ?? '', note: p.note ?? '', lesson: p.lesson ?? '', include: true }))
+    .map((p) => (targetSubject() === 'latin' ? fixLatinInfinitive(p) : p));
   if (!imp.pairs.length && !imp.sentences.length && !imp.unreadable) {
     imp.notice = `${imp.notice} Es wurden keine Vokabeln erkannt. Du kannst sie mit „＋ Zeile“ auch von Hand eintragen.`.trim();
   }

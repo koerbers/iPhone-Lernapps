@@ -158,7 +158,7 @@ export async function recognizeImage(canvas, languages, onProgress) {
  */
 export async function recognizePdf(file, languages, onProgress) {
   const pdfjs = await loadPdfJs();
-  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
   const pages = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const step = `Seite ${i} von ${pdf.numPages}`;
@@ -202,7 +202,7 @@ export async function renderPdfPage(page, maxDimension = OCR_SIZE) {
 /** Kleine Vorschaubilder aller Seiten einer PDF (für die Zuordnung zu Lektionen). */
 export async function pdfThumbnails(file, maxDimension = 360) {
   const pdfjs = await loadPdfJs();
-  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
   const thumbs = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const canvas = await renderPdfPage(await pdf.getPage(i), maxDimension);
@@ -214,7 +214,7 @@ export async function pdfThumbnails(file, maxDimension = 360) {
 /** Alle Seiten einer PDF als Bilder (für die KI). */
 export async function pdfPagesAsCanvases(file, maxDimension = 1600) {
   const pdfjs = await loadPdfJs();
-  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pdf = await pdfjs.getDocument({ data: await file.arrayBuffer(), isEvalSupported: false }).promise;
   const canvases = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     canvases.push(await renderPdfPage(await pdf.getPage(i), maxDimension));

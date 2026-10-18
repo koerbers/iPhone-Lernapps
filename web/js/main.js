@@ -1,4 +1,5 @@
 // Einstieg der App: wählt anhand der Adresse (#/…) die passende Seite.
+import { justSwitched } from './store.js';
 import { renderHome } from './views/home.js';
 import { renderImport } from './views/import.js';
 import { renderListDetail, renderLists } from './views/lists.js';
@@ -34,23 +35,17 @@ function route() {
   window.scrollTo(0, 0);
 }
 
-// Mehrere Kinder teilen sich oft ein Gerät: beim Start der App und nach längerer Pause erst fragen, wer lernt.
-const ASKED = 'vokabeltrainer-asked';
-const PAUSE_MS = 30 * 60 * 1000;
+// Mehrere Kinder teilen sich oft ein Gerät: bei jedem Start der App und nach längerer Pause erst fragen, wer lernt.
+// Ausnahme: das Neuladen direkt nach dem Wechsel des Kindes (switchProfile setzt dafür einen Merker).
+const PAUSE_MS = 15 * 60 * 1000;
 
 function askWhoLearns() {
   if (!document.getElementById('overlay').hidden || location.hash.startsWith('#/import')) return;
   location.hash = '#/kinder';
 }
 
-try {
-  if (!sessionStorage.getItem(ASKED)) {
-    sessionStorage.setItem(ASKED, '1'); // gilt bis die App geschlossen wird (auch über Neuladen beim Wechseln hinweg)
-    askWhoLearns();
-  }
-} catch {
-  // ohne sessionStorage (privates Fenster) einfach normal starten
-}
+// Beim Start ohne hashchange-Ereignis umleiten (sonst würde die Seite zweimal aufgebaut)
+if (!justSwitched() && !location.hash.startsWith('#/import')) history.replaceState(null, '', '#/kinder');
 
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {

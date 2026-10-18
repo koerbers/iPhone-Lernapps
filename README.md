@@ -12,7 +12,7 @@ Die App gibt es in zwei Varianten, beide brauchen **keinen Mac**:
 
 ## Was die App kann
 
-- **Mehrere Kinder:** Jedes Kind hat ein Profil (Name, Alter, Bild) mit eigenen Listen, eigenem Lernstand, eigener Statistik und eigenen Einstellungen. Beim Start der App (und nach mehr als 30 Minuten Pause) fragt sie „Wer lernt?“, damit sich mehrere Kinder ein Gerät teilen können; gewechselt wird außerdem oben auf der Startseite über das Bild. Listen lassen sich für ein anderes Kind kopieren; der Claude-Schlüssel gilt für alle.
+- **Mehrere Kinder:** Jedes Kind hat ein Profil (Name, Alter, Bild) mit eigenen Listen, eigenem Lernstand, eigener Statistik und eigenen Einstellungen. Bei jedem Start der App (und nach mehr als 15 Minuten Pause) fragt sie „Wer lernt?“, damit sich mehrere Kinder ein Gerät teilen können; gewechselt wird außerdem oben auf der Startseite über das Bild. Listen lassen sich für ein anderes Kind kopieren; der Claude-Schlüssel gilt für alle.
 - **Avatare:** Tier- und Weltall-Bilder (🚀 🛸 👽 🤖 🧑‍🚀 🪐 …) oder ein eigenes Foto/Bild vom Gerät (z. B. die Lieblingsfigur). Eigene Bilder werden quadratisch verkleinert und bleiben nur auf dem Gerät (und in der Sicherungsdatei).
 - **Schwierigkeit nach Alter** (automatisch, in den Einstellungen änderbar):
 
@@ -57,6 +57,15 @@ Eine Übungsrunde kostet wenige Cent. Der Schlüssel bleibt nur auf dem jeweilig
 (Die Swift-App kann auf neueren Geräten mit iOS/iPadOS 26 stattdessen auch Apple Intelligence nutzen, kostenlos und offline.)
 
 ---
+
+## Sicherheit und Eltern-Code
+
+- **Eltern-Code (Einstellungen → 🔒):** Lernstand und Statistik zurücksetzen, Listen, Vokabeln, Sätze oder Kinder löschen und eine Sicherung laden geht nur mit dem Code (4–8 Ziffern). Er wird beim ersten Löschen festgelegt, falls noch keiner existiert. Gespeichert wird nur ein Prüfwert (SHA-256 mit Zufallssalz). Nach 3 Fehlversuchen wird die Eingabe 1, 2, 4 … Minuten gesperrt. Nach richtiger Eingabe wird 5 Minuten lang nicht erneut gefragt.
+- **Grenze:** Alle Daten liegen im Browser des Geräts. Wer in den iPhone-Einstellungen die Website-Daten von Safari löscht, löscht alles, auch ohne Code. Dagegen hilft die **Bildschirmzeit** von iOS (Einschränkungen, Code für Einstellungen). Den Eltern-Code bitte gut merken. Ohne ihn hilft nur: Sicherung speichern (geht ohne Code), Website-Daten löschen, Sicherung wieder laden. Der Code ist nicht Teil der Sicherung.
+- **Content Security Policy** (in `index.html`): Die App darf nur eigene Dateien, Texterkennung/PDF-Leser von cdn.jsdelivr.net (feste Versionen) und die Claude-API laden. Eingeschleuster Code kann den API-Schlüssel so nicht nach außen schicken.
+- **Sicherungsdateien werden geprüft:** Nur bekannte Felder mit passenden Werten werden übernommen. Eine manipulierte Datei kann keinen Code einschleusen.
+- **Claude-Schlüssel:** Er bleibt auf dem Gerät und ist nicht in der Sicherung. Bitte bei platform.claude.com ein **monatliches Ausgabenlimit** setzen und den Schlüssel sofort löschen, falls das Gerät verloren geht.
+- **GitHub:** Der Veröffentlichungs-Workflow hat nur die nötigen Rechte. Im Repository sollte nie ein Schlüssel oder Foto der Kinder landen.
 
 ## Web-App: aufs iPhone bringen
 
