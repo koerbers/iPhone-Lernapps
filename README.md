@@ -13,6 +13,7 @@ Die App gibt es in zwei Varianten, beide brauchen **keinen Mac**:
 ## Was die App kann
 
 - **Mehrere Kinder:** Jedes Kind hat ein Profil (Name, Alter, Bild) mit eigenen Listen, eigenem Lernstand, eigener Statistik und eigenen Einstellungen. Gewechselt wird oben auf der Startseite über das Bild. Listen lassen sich für ein anderes Kind kopieren; der Claude-Schlüssel gilt für alle.
+- **Avatare:** Tier- und Weltall-Bilder (🚀 🛸 👽 🤖 🧑‍🚀 🪐 …) oder ein eigenes Foto/Bild vom Gerät (z. B. die Lieblingsfigur). Eigene Bilder werden quadratisch verkleinert und bleiben nur auf dem Gerät (und in der Sicherungsdatei).
 - **Schwierigkeit nach Alter** (automatisch, in den Einstellungen änderbar):
 
   | | Leicht (bis 10) | Mittel (11–12) | Schwer (ab 13) |

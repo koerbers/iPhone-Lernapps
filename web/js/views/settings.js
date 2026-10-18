@@ -2,7 +2,7 @@
 import { isConfigured, makeSentences } from '../ai.js';
 import { levelOf } from '../level.js';
 import {
-  activeProfile, db, deleteProfile, exportBackup, getClaudeKey, importBackup, insertSampleData, profiles,
+  activeProfile, avatarHtml, db, deleteProfile, exportBackup, getClaudeKey, importBackup, insertSampleData, profiles,
   resetProgress, save, setClaudeKey, switchProfile,
 } from '../store.js';
 import { esc, onAction } from '../ui.js';
@@ -26,7 +26,7 @@ export function renderSettings(root) {
 
     <section class="card">
       <div class="row between">
-        <h3><span class="avatar">${profile.avatar}</span> ${esc(profile.name)}</h3>
+        <h3>${avatarHtml(profile)} ${esc(profile.name)}</h3>
         <button class="btn" data-action="editProfile">✏️ Bearbeiten</button>
       </div>
       <p>${profile.age ? `${profile.age} Jahre` : 'Alter nicht angegeben'} · Schwierigkeit: <strong>${esc(levelSummary(profile))}</strong></p>
@@ -51,7 +51,7 @@ export function renderSettings(root) {
       <div class="list-group flat">
         ${profiles.list.map((p) => `
           <div class="list-row">
-            <span class="avatar">${p.avatar}</span>
+            ${avatarHtml(p)}
             <div class="grow">
               <strong>${esc(p.name)}</strong>${p.id === profile.id ? ' <span class="muted small">(aktiv)</span>' : ''}
               <div class="muted small">${p.age ? `${p.age} Jahre · ` : ''}${levelOf(p).label}</div>

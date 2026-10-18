@@ -12,7 +12,17 @@ const LEGACY_KEY = 'vokabeltrainer-v1'; // Version ohne Profile
 const PROFILES_KEY = 'vokabeltrainer-profiles';
 const dataKey = (profileId) => `vokabeltrainer-data-${profileId}`;
 
-export const AVATARS = ['🦊', '🐼', '🦁', '🐸', '🐧', '🦄', '🐯', '🐨', '🐙', '🦉', '🐬', '🐝'];
+export const AVATAR_GROUPS = {
+  Tiere: ['🦊', '🐼', '🦁', '🐸', '🐧', '🦄', '🐯', '🐨', '🐙', '🦉', '🐬', '🐝'],
+  Weltall: ['🚀', '🛸', '👽', '🤖', '🧑‍🚀', '🪐', '🌌', '☄️', '👾', '🌟', '🌙', '⚔️'],
+};
+export const AVATARS = Object.values(AVATAR_GROUPS).flat();
+
+/** Avatar eines Kindes als HTML: eigenes Bild (nur auf dem Gerät gespeichert) oder Emoji. */
+export function avatarHtml(profile, cls = 'avatar') {
+  if (profile.avatarImage) return `<img class="${cls} avatar-img" src="${profile.avatarImage}" alt="">`;
+  return `<span class="${cls}">${profile.avatar}</span>`;
+}
 
 const DEFAULT_SETTINGS = {
   sessionSize: 20,
@@ -93,8 +103,11 @@ export function setClaudeKey(key) {
   saveProfiles();
 }
 
-export function addProfile({ name, age, avatar }) {
-  const profile = { id: uid(), name, age: age || null, avatar: avatar || AVATARS[profiles.list.length % AVATARS.length], difficulty: 'auto' };
+export function addProfile({ name, age, avatar, avatarImage, difficulty }) {
+  const profile = {
+    id: uid(), name, age: age || null, avatar: avatar || AVATARS[profiles.list.length % AVATARS.length],
+    avatarImage: avatarImage || null, difficulty: difficulty || 'auto',
+  };
   profiles.list.push(profile);
   saveProfiles();
   writeJSON(dataKey(profile.id), emptyState(levelOf(profile)));

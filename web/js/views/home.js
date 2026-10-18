@@ -1,7 +1,7 @@
 // Startseite „Lernen“: Überblick pro Fach.
 import { MASTERED_BOX, dueCount, weakestBox } from '../srs.js';
 import { logsToday, streak } from '../stats.js';
-import { activeProfile, cardsOfSubject, currentLevel, db, insertSampleData, listsOf, profiles } from '../store.js';
+import { activeProfile, avatarHtml, cardsOfSubject, currentLevel, db, insertSampleData, listsOf, profiles } from '../store.js';
 import { SUBJECTS, SUBJECT_IDS } from '../subjects.js';
 import { esc, onAction } from '../ui.js';
 
@@ -17,7 +17,7 @@ export function renderHome(root) {
     <div class="row between">
       <h1>Lernen</h1>
       <a class="profile-chip" href="#/kinder" aria-label="Kind wechseln">
-        <span class="avatar">${profile.avatar}</span>
+        ${avatarHtml(profile)}
         <span>${esc(name)}${profiles.list.length > 1 ? ' ⇄' : ''}</span>
       </a>
     </div>
