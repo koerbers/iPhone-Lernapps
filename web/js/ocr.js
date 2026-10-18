@@ -18,6 +18,9 @@ const OCR_SIZE = 2200;
  */
 export const READABLE_QUALITY = 70;
 
+// So lange darf das Laden der Texterkennung samt Sprachdaten höchstens dauern (langsames Mobilfunknetz)
+const START_TIMEOUT_MS = 180_000;
+
 let tesseractLoading;
 function loadTesseract() {
   tesseractLoading ??= new Promise((resolve, reject) => {
@@ -52,11 +55,23 @@ async function getWorker(languages) {
   await terminateOcr();
   const Tesseract = await loadTesseract();
   progressListener?.('Sprachdaten werden geladen …');
-  worker = await Tesseract.createWorker(languages, 1, {
+  let failed;
+  const failure = new Promise((_, reject) => (failed = reject));
+  const starting = Tesseract.createWorker(languages, 1, {
     logger: (m) => {
       if (m.status === 'recognizing text') progressListener?.(`Text wird erkannt … ${Math.round(m.progress * 100)} %`);
     },
+    // Fehler im Hintergrund-Worker sonst nur als „Script error“ ohne Ende des Ladens
+    errorHandler: (e) => failed(new Error(`Die Texterkennung ist abgestürzt (${e?.message ?? e}).`)),
   });
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Die Texterkennung startet nicht. Bitte Internetverbindung prüfen und noch einmal versuchen.')), START_TIMEOUT_MS));
+  try {
+    worker = await Promise.race([starting, failure, timeout]);
+  } catch (e) {
+    starting.then((w) => w.terminate()).catch(() => {});
+    throw e;
+  }
   workerLanguages = languages;
   return worker;
 }
