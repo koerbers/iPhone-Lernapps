@@ -1,0 +1,30 @@
+{
+  "name": "vokabeltrainer-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Installierbare App (Android/iOS) aus der Web-App im Ordner ../web – gebaut mit Capacitor",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-www.mjs",
+    "android": "node scripts/build-www.mjs && node scripts/native.mjs android",
+    "ios": "node scripts/build-www.mjs && node scripts/native.mjs ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/ios": "8.5.3",
+    "@capacitor/share": "8.0.3",
+    "@tesseract.js-data/deu": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/lat": "1.0.0",
+    "pdfjs-dist": "4.4.168",
+    "tesseract.js": "5.1.1",
+    "tesseract.js-core": "5.1.1"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "3.0.5",
+    "@capacitor/cli": "8.5.3"
+  }
+}

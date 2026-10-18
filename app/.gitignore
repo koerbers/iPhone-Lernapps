@@ -1,0 +1,5 @@
+# Wird bei jedem Bau neu erzeugt (npm run android / npm run ios)
+node_modules/
+www/
+android/
+ios/

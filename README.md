@@ -121,10 +121,74 @@ web/
   js/stats.js           Auswertungen für „Erfolge“
   js/store.js           Speichern im Browser, Sicherung, Beispielvokabeln
   js/ocr.js             Texterkennung für Fotos und PDFs
+  js/platform.js        Browser oder installierte App? (Pfade, native Funktionen)
   js/ai.js              Anbindung an Claude
   js/views/*.js         Die einzelnen Seiten
   tests/                Automatische Tests
 ```
+
+---
+
+## Installierbare App für Android und iPhone (Ordner `app/`)
+
+Die Web-App wird mit [Capacitor](https://capacitorjs.com) in eine echte App verpackt. Es gibt **eine** Codebasis:
+Jede Änderung in `web/` landet beim nächsten Bau automatisch auch in der App.
+
+Unterschiede zur Web-App:
+- **Offline-Import:** Texterkennung, PDF-Leser und Sprachdaten (Englisch, Deutsch, Latein) liegen mit im App-Paket (ca. 16 MB). Nur Claude braucht Internet.
+- **Sicherung:** Die Datei wird über „Teilen“ gespeichert (Dateien, iCloud, Google Drive, Mail).
+- **Android-Zurück-Taste:** Sie schließt erst Dialoge oder die Übungsrunde und geht dann zurück.
+- **Strengere Sicherheitsregeln:** Ohne CDN darf die App nur noch mit der Claude-API sprechen.
+- **Eigene Daten:** Die App hat einen eigenen Speicher, getrennt von Safari bzw. Chrome. Umziehen geht mit **Sicherung speichern → in der App „Sicherung laden“**.
+
+### Android: APK bauen lassen und installieren (geht ohne eigenen Rechner)
+
+1. Auf github.com im Repository **Actions → „App bauen (Android/iOS)“** öffnen. Läuft nichts, auf **„Run workflow“** tippen.
+2. Nach etwa 5–10 Minuten den grünen Lauf öffnen und unten unter **Artifacts** die Datei **Vokabeltrainer-Android** herunterladen. Das ist eine ZIP-Datei mit `app-debug.apk`.
+3. Die APK auf das Android-Gerät bringen und öffnen. Android fragt einmal, ob Apps aus dieser Quelle installiert werden dürfen: erlauben.
+
+Am Windows-PC geht es auch mit **Android Studio**:
+```
+cd app
+npm install
+npm run android
+npx cap open android
+```
+Danach in Android Studio auf ▶ tippen (Gerät per USB oder Emulator).
+
+### iPhone
+
+- **Jetzt schon:** die Web-App über Safari → Teilen → **„Zum Home-Bildschirm“**. Sie verhält sich wie eine App.
+- **Als echte App** braucht Apple ein **Apple-Developer-Konto** (99 € pro Jahr) und eine Signatur. Ohne Mac geht das über einen Cloud-Bau: die GitHub-Actions-macOS-Maschine dieses Workflows mit hinterlegten Zertifikaten, oder ein Dienst wie Codemagic. Dann kommt die App per **TestFlight** auf die Familien-iPhones.
+- Der Workflow prüft schon jetzt bei jeder Änderung, ob das iOS-Projekt baut.
+
+### Später in die Stores (Checkliste)
+
+- **App-ID** `de.koerbers.vokabeltrainer` in `app/capacitor.config.json`. Vor der ersten Veröffentlichung endgültig festlegen, danach nicht mehr ändern.
+- **Google Play:**
+  - Entwicklerkonto (einmalig 25 $),
+  - Signaturschlüssel als GitHub-Secret, `./gradlew bundleRelease` (AAB),
+  - Datenschutzerklärung und Angaben zur Datensicherheit,
+  - da Kinder die Zielgruppe sind: die Families-Richtlinien beachten.
+- **App Store:**
+  - Apple-Developer-Konto, Signatur, TestFlight,
+  - Datenschutzangaben,
+  - bei der Kategorie „Kinder“ besonders strenge Regeln (z. B. keine Links nach außen ohne Eltern-Schranke). Der Link zu platform.claude.com müsste dann hinter den Eltern-Code.
+- **Daten:**
+  - Die App speichert lokal. Es gibt keine Konten und keine Werbung.
+  - Nur wenn ein Claude-Schlüssel eingetragen ist, gehen Fotos oder Vokabeln zur Auswertung an Anthropic. Das gehört in die Datenschutzerklärung.
+
+### Aufbau
+
+```
+app/
+  package.json            Capacitor und die Bibliotheken für Offline-Texterkennung (feste Versionen)
+  capacitor.config.json   App-ID, Name, Einstellungen
+  assets/                 App-Symbol und Startbild (erzeugt mit scripts/make-icons.py)
+  scripts/build-www.mjs   web/ → www/ kopieren, Texterkennung/PDF-Leser nach www/vendor/
+  scripts/native.mjs      Android-/iOS-Projekt erzeugen, Symbole, Kamera-Begründung (iOS), Dateien kopieren
+```
+Die Ordner `android/`, `ios/` und `www/` werden bei jedem Bau neu erzeugt und nicht eingecheckt.
 
 ---
 

@@ -4,10 +4,7 @@
 // Ergebnis ist der erkannte Text (zum Anzeigen) und – wenn die Seite wie eine Vokabeltabelle
 // aussieht – direkt die Vokabelpaare (siehe layout.js).
 import { tableToContent } from './layout.js';
-
-const TESSERACT_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
-const PDFJS_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs';
-const PDFJS_WORKER_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
+import { LIBS } from './platform.js';
 
 /** Zielgröße (längste Seite in Pixeln) für die Texterkennung */
 const OCR_SIZE = 2200;
@@ -25,7 +22,7 @@ let tesseractLoading;
 function loadTesseract() {
   tesseractLoading ??= new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = TESSERACT_URL;
+    script.src = LIBS.tesseract;
     script.onload = () => resolve(window.Tesseract);
     script.onerror = () => {
       tesseractLoading = null;
@@ -38,8 +35,8 @@ function loadTesseract() {
 
 let pdfjsLoading;
 function loadPdfJs() {
-  pdfjsLoading ??= import(PDFJS_URL).then((pdfjs) => {
-    pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_URL;
+  pdfjsLoading ??= import(LIBS.pdfjs).then((pdfjs) => {
+    pdfjs.GlobalWorkerOptions.workerSrc = LIBS.pdfjsWorker;
     return pdfjs;
   });
   return pdfjsLoading;
@@ -58,6 +55,7 @@ async function getWorker(languages) {
   let failed;
   const failure = new Promise((_, reject) => (failed = reject));
   const starting = Tesseract.createWorker(languages, 1, {
+    ...LIBS.tesseractOptions,
     logger: (m) => {
       if (m.status === 'recognizing text') progressListener?.(`Text wird erkannt … ${Math.round(m.progress * 100)} %`);
     },

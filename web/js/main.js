@@ -1,4 +1,5 @@
 // Einstieg der App: wählt anhand der Adresse (#/…) die passende Seite.
+import { isNativeApp, plugin } from './platform.js';
 import { justSwitched } from './store.js';
 import { renderHome } from './views/home.js';
 import { renderImport } from './views/import.js';
@@ -56,7 +57,17 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('hashchange', route);
 route();
 
-// Offline-Unterstützung
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+// Offline-Unterstützung im Browser (die installierte App hat alle Dateien ohnehin dabei)
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !isNativeApp) {
   navigator.serviceWorker.register('sw.js');
 }
+
+// Android-App: Zurück-Taste schließt erst Dialoge/Übungsrunden und geht zurück, bevor die App endet
+plugin('App')?.addListener('backButton', () => {
+  const dialog = document.querySelector('dialog[open]');
+  const overlay = document.getElementById('overlay');
+  if (dialog) dialog.close('cancel');
+  else if (!overlay.hidden) overlay.querySelector('[data-action=quit], [data-action=close]')?.click();
+  else if (!['', '#/lernen', '#/kinder'].includes(location.hash)) history.back();
+  else plugin('App').exitApp();
+});
