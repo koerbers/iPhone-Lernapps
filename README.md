@@ -12,7 +12,7 @@ Die App gibt es in zwei Varianten, beide brauchen **keinen Mac**:
 
 ## Was die App kann
 
-- **Mehrere Kinder:** Jedes Kind hat ein Profil (Name, Alter, Bild) mit eigenen Listen, eigenem Lernstand, eigener Statistik und eigenen Einstellungen. Gewechselt wird oben auf der Startseite über das Bild. Listen lassen sich für ein anderes Kind kopieren; der Claude-Schlüssel gilt für alle.
+- **Mehrere Kinder:** Jedes Kind hat ein Profil (Name, Alter, Bild) mit eigenen Listen, eigenem Lernstand, eigener Statistik und eigenen Einstellungen. Beim Start der App (und nach mehr als 30 Minuten Pause) fragt sie „Wer lernt?“, damit sich mehrere Kinder ein Gerät teilen können; gewechselt wird außerdem oben auf der Startseite über das Bild. Listen lassen sich für ein anderes Kind kopieren; der Claude-Schlüssel gilt für alle.
 - **Avatare:** Tier- und Weltall-Bilder (🚀 🛸 👽 🤖 🧑‍🚀 🪐 …) oder ein eigenes Foto/Bild vom Gerät (z. B. die Lieblingsfigur). Eigene Bilder werden quadratisch verkleinert und bleiben nur auf dem Gerät (und in der Sicherungsdatei).
 - **Schwierigkeit nach Alter** (automatisch, in den Einstellungen änderbar):
 
