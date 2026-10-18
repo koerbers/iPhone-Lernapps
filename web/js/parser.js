@@ -96,6 +96,23 @@ function clean(s) {
     .trim();
 }
 
+// Lateinische Wörter auf -ve, die wirklich so heißen (Adjektive wie „gravis, grave“, Grußformeln)
+const REAL_VE = new Set(['ave', 'cave', 'salve', 'vale', 'grave', 'breve', 'leve', 'suave', 'nive', 'nave', 'clave']);
+
+/**
+ * Latein: Die Texterkennung liest das „r“ der Infinitivendung oft als „v“ („violave“ statt „violare“).
+ * Ein einzelnes Wort auf -ave/-eve/-ive mit deutschem Verb als Bedeutung („verletzen“) ist fast sicher ein Infinitiv.
+ */
+export function fixLatinInfinitive(pair) {
+  const m = /^(\p{L}{2,}[aeiāēī])ve(?=$|[,\s])/u.exec(pair.term ?? '');
+  if (!m || REAL_VE.has(m[0].toLowerCase())) return pair;
+  const germanVerb = (pair.translation ?? '')
+    .split(/[,;/]/)
+    .map((t) => t.replace(/\(.*?\)/g, '').trim())
+    .some((t) => /^[\p{Ll} ]*\p{Ll}(e|er|el)n$/u.test(t)); // nur Kleinbuchstaben: Verb, kein Substantiv
+  return germanVerb ? { ...pair, term: m[1] + 're' + pair.term.slice(m[0].length) } : pair;
+}
+
 /**
  * Korrigiert typische Lesefehler der Texterkennung bei Akzenten:
  * - Fremdwort: Die Texterkennung kennt keine lateinischen Längenzeichen (ā, ē, ō …) und liest

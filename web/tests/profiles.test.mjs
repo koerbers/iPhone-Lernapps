@@ -98,3 +98,38 @@ describe('Mehrere Kinder', () => {
     assert.equal(storage.getItem(`vokabeltrainer-data-${first.id}`), null);
   });
 });
+
+describe('Sicherheit', () => {
+  test('manipulierte Sicherung: kein HTML/Code in Profilen und Daten', async () => {
+    const store = await freshStore(fakeStorage());
+    const evil = '<img src=x onerror=alert(1)>';
+    store.importBackup(JSON.stringify({
+      format: 'vokabeltrainer-2',
+      profiles: [
+        { id: 'a"><script>', name: 'X' },
+        { id: 'ok', name: evil, age: '9<b>', avatar: evil, avatarImage: 'x" onerror="alert(1)', difficulty: 'constructor' },
+      ],
+      data: {
+        ok: {
+          lists: [{ id: 'L1', name: evil, subject: 'latin' }, { id: 'L2"', name: 'x', subject: 'latin' }, { id: 'L3', subject: '__proto__' }],
+          cards: [{ id: 'c1', listId: 'L1', term: 'amo', translation: 'lieben', fwd: { box: '<b>', due: 0, correct: 1, wrong: 0 } }],
+          logs: [{ date: 1, subject: 'latin', correct: 'yes' }],
+          settings: { timerMinutes: '<b>', claudeKey: 'sk-evil' },
+        },
+      },
+    }));
+    assert.equal(store.profiles.list.length, 1);
+    const kid = store.profiles.list[0];
+    assert.equal(kid.age, null);
+    assert.equal(kid.avatarImage, null);
+    assert.equal(kid.difficulty, 'auto');
+    assert.ok(!store.avatarHtml(kid).includes('<img'));
+    assert.ok(!store.avatarHtml({ avatar: evil }).includes('<img'));
+    const data = JSON.parse(globalThis.localStorage.getItem('vokabeltrainer-data-ok'));
+    assert.deepEqual(data.lists.map((l) => l.id), ['L1']);
+    assert.equal(data.cards[0].fwd.box, 0);
+    assert.equal(data.logs[0].correct, false);
+    assert.equal(data.settings.timerMinutes, 15);
+    assert.equal(data.settings.claudeKey, undefined);
+  });
+});

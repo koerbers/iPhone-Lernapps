@@ -1,7 +1,7 @@
 // Schwierigkeitsstufen – automatisch nach dem Alter des Kindes oder von Hand eingestellt.
 // Sie bestimmen, wie streng geprüft wird und wie schwer Übungssätze und Antwortmöglichkeiten sind.
 
-export const LEVELS = {
+export const LEVELS = Object.assign(Object.create(null), {
   easy: {
     id: 'easy',
     label: 'Leicht',
@@ -50,7 +50,7 @@ export const LEVELS = {
       'abwechslungsreiche Sätze mit 8 bis 16 Wörtern, verschiedene Zeitformen, Nebensätze und typische Konstruktionen der Klassenstufe',
     grading: 'Bewerte genau: Zeitform, Person, Fall und Wortbedeutung müssen stimmen. Rechtschreibfehler werden erwähnt.',
   },
-};
+});
 
 /** Stufe passend zum Alter (ohne Alter: mittel). */
 export function levelForAge(age) {

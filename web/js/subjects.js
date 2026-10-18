@@ -1,11 +1,12 @@
 // Fächer und Abfragerichtungen.
 // "fwd" = Fremdsprache → Deutsch, "rev" = Deutsch → Fremdsprache
 
-export const SUBJECTS = {
+// Ohne Prototyp: SUBJECTS['constructor'] o. Ä. aus der Adresse ergibt kein Fach
+export const SUBJECTS = Object.assign(Object.create(null), {
   english: { id: 'english', name: 'Englisch', flag: '🇬🇧', dirs: ['fwd', 'rev'], ocrLang: 'eng+deu' },
   // Latein wird nur Latein → Deutsch abgefragt
   latin: { id: 'latin', name: 'Latein', flag: '🏛️', dirs: ['fwd'], ocrLang: 'lat+deu' },
-};
+});
 
 export const SUBJECT_IDS = Object.keys(SUBJECTS);
 

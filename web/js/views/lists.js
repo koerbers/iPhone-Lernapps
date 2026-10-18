@@ -4,6 +4,7 @@ import {
   addCard, addList, addSentence, cardsOf, cleanLesson, db, deleteCard, deleteList, deleteSentence, getList, lessonsOf,
   activeProfile, copyListToProfile, listsOf, profiles, resetProgress, save, sentencesOf,
 } from '../store.js';
+import { requireParent } from '../parent.js';
 import { SUBJECTS, SUBJECT_IDS, dirLabel } from '../subjects.js';
 import { boxIndicator, esc, formDialog, onAction } from '../ui.js';
 
@@ -148,7 +149,7 @@ export function renderListDetail(root, listId) {
       const values = await formDialog('Liste kopieren', `
         <p>„${esc(list.name)}“ mit allen Vokabeln und Sätzen kopieren für:</p>
         <label class="field">Kind
-          <select name="profile">${others.map((p) => `<option value="${p.id}">${p.avatar} ${esc(p.name)}</option>`).join('')}</select>
+          <select name="profile">${others.map((p) => `<option value="${esc(p.id)}">${esc(p.avatar)} ${esc(p.name)}</option>`).join('')}</select>
         </label>
         <p class="hint">Das andere Kind startet mit eigenem Lernstand – alle Vokabeln gelten dort als neu.</p>`, 'Kopieren');
       if (!values) return;
@@ -172,13 +173,15 @@ export function renderListDetail(root, listId) {
         renderListDetail(root, listId);
       }
     },
-    reset: () => {
+    reset: async () => {
+      if (!(await requireParent('Den Lernstand dieser Liste zurücksetzen'))) return;
       if (confirm('Lernstand dieser Liste zurücksetzen? Alle Vokabeln gelten danach wieder als neu.')) {
         resetProgress(cardsOf([listId]));
         renderListDetail(root, listId);
       }
     },
-    deleteList: () => {
+    deleteList: async () => {
+      if (!(await requireParent(`Die Liste „${list.name}“ löschen`))) return;
       if (confirm(`Liste „${list.name}“ mit allen Vokabeln löschen?`)) {
         deleteList(listId);
         location.hash = '#/listen';
@@ -214,6 +217,7 @@ export async function cardDialog(list, card) {
     ${stats}`);
   if (!values) return false;
   if (card && values.delete) {
+    if (!(await requireParent(`Die Vokabel „${card.term}“ löschen`))) return false;
     deleteCard(card.id);
     return true;
   }
@@ -245,6 +249,7 @@ async function sentenceDialog(list, sentence) {
     ${sentence ? '<label class="check-row"><input type="checkbox" name="delete"> <span>Diesen Satz löschen</span></label>' : ''}`);
   if (!values) return false;
   if (sentence && values.delete) {
+    if (!(await requireParent('Den Satz löschen'))) return false;
     deleteSentence(sentence.id);
     return true;
   }

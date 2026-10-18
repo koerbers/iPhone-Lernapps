@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { ALMOST, CORRECT, WRONG, check, checkMeanings, levenshtein, sentenceSimilarity } from '../js/answer.js';
-import { fixOcrAccents, parse, parseText } from '../js/parser.js';
+import { fixLatinInfinitive, fixOcrAccents, parse, parseText } from '../js/parser.js';
 import { isGermanLine, tableToContent, tableToPairs } from '../js/layout.js';
 import { createSession, currentItem, recordAnswer } from '../js/session.js';
 import { MAX_BOX, buildSession, isDue, newState, priority, review, startOfDay, addDays } from '../js/srs.js';
@@ -356,4 +356,17 @@ describe('Statistik', () => {
     const now = Date.now();
     assert.equal(streak([{ date: addDays(now, -3) }], now), 0);
   });
+});
+
+test('Latein: „violave“ wird zu „violare“, echte Wörter auf -ve bleiben', () => {
+  const fix = (term, translation) => fixLatinInfinitive({ term, translation, note: '' }).term;
+  assert.equal(fix('violave', 'verletzen, beleidigen'), 'violare');
+  assert.equal(fix('audive', 'hören'), 'audire');
+  assert.equal(fix('taceve', 'schweigen'), 'tacere');
+  assert.equal(fix('violave, violo', 'verletzen'), 'violare, violo');
+  assert.equal(fix('cave', 'hüte dich'), 'cave');
+  assert.equal(fix('grave', 'schwer'), 'grave');
+  assert.equal(fix('navve', 'das Schiff'), 'navve');
+  assert.equal(fix('servave', 'der Garten'), 'servave'); // Substantiv als Bedeutung: nicht ändern
+  assert.equal(fix('servave', 'retten, bewahren'), 'servare');
 });

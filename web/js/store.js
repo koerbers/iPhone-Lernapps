@@ -6,7 +6,9 @@
 // eigenen Speicherbereich mit Listen, Lernstand, Statistik und Einstellungen. `db` enthält
 // immer die Daten des gerade aktiven Kindes. Der Claude-Schlüssel gilt für alle Kinder.
 import { LEVELS, levelOf } from './level.js';
-import { newState } from './srs.js';
+import { MAX_BOX, newState } from './srs.js';
+import { SUBJECT_IDS } from './subjects.js';
+import { esc } from './ui.js';
 
 const LEGACY_KEY = 'vokabeltrainer-v1'; // Version ohne Profile
 const PROFILES_KEY = 'vokabeltrainer-profiles';
@@ -20,8 +22,84 @@ export const AVATARS = Object.values(AVATAR_GROUPS).flat();
 
 /** Avatar eines Kindes als HTML: eigenes Bild (nur auf dem Gerät gespeichert) oder Emoji. */
 export function avatarHtml(profile, cls = 'avatar') {
-  if (profile.avatarImage) return `<img class="${cls} avatar-img" src="${profile.avatarImage}" alt="">`;
-  return `<span class="${cls}">${profile.avatar}</span>`;
+  if (SAFE_IMAGE.test(profile.avatarImage ?? '')) return `<img class="${cls} avatar-img" src="${profile.avatarImage}" alt="">`;
+  return `<span class="${cls}">${esc(profile.avatar)}</span>`;
+}
+
+// Nur echte Bilddaten zulassen (eine manipulierte Sicherung könnte sonst Code einschleusen)
+const SAFE_IMAGE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+
+// ---------- Sicherung prüfen: nur bekannte Felder mit passenden Werten übernehmen ----------
+
+const str = (v, max = 500) => (typeof v === 'string' ? v.slice(0, max) : '');
+const num = (v, fallback = 0) => (Number.isFinite(v) ? v : fallback);
+const int = (v, min, max, fallback) => (Number.isInteger(v) && v >= min && v <= max ? v : fallback);
+const safeId = (v) => (typeof v === 'string' && /^[\w.-]{1,64}$/.test(v) ? v : null);
+const list = (v) => (Array.isArray(v) ? v : []);
+
+function cleanState(st) {
+  if (!st || typeof st !== 'object') return undefined;
+  return {
+    box: int(st.box, 0, MAX_BOX, 0), due: num(st.due), correct: int(st.correct, 0, 1e6, 0),
+    wrong: int(st.wrong, 0, 1e6, 0), last: Number.isFinite(st.last) ? st.last : null,
+  };
+}
+
+/** Daten eines Kindes aus einer Sicherung. Unbrauchbare Einträge werden weggelassen. */
+function cleanData(d) {
+  const lists = list(d?.lists)
+    .filter((l) => safeId(l?.id) && SUBJECT_IDS.includes(l.subject))
+    .map((l) => ({ id: l.id, name: str(l.name, 100) || 'Liste', subject: l.subject, createdAt: num(l.createdAt) }));
+  const listIds = new Set(lists.map((l) => l.id));
+  const cards = list(d?.cards)
+    .filter((c) => safeId(c?.id) && listIds.has(c.listId))
+    .map((c) => {
+      const card = {
+        id: c.id, listId: c.listId, term: str(c.term), translation: str(c.translation), note: str(c.note),
+        lesson: str(c.lesson, 100), createdAt: num(c.createdAt),
+      };
+      for (const dir of ['fwd', 'rev']) if (cleanState(c[dir])) card[dir] = cleanState(c[dir]);
+      return card;
+    });
+  const sentences = list(d?.sentences)
+    .filter((x) => safeId(x?.id) && listIds.has(x.listId))
+    .map((x) => ({
+      id: x.id, listId: x.listId, prompt: str(x.prompt, 1000),
+      solutions: list(x.solutions).map((t) => str(t, 1000)).filter(Boolean),
+      lesson: str(x.lesson, 100), correct: int(x.correct, 0, 1e6, 0), wrong: int(x.wrong, 0, 1e6, 0), createdAt: num(x.createdAt),
+    }))
+    .filter((x) => x.prompt && x.solutions.length);
+  const logs = list(d?.logs)
+    .filter((l) => Number.isFinite(l?.date) && SUBJECT_IDS.includes(l.subject))
+    .map((l) => ({
+      date: l.date, subject: l.subject, dir: l.dir === 'rev' ? 'rev' : 'fwd', kind: l.kind === 'sentence' ? 'sentence' : 'vocab',
+      correct: l.correct === true, prompt: str(l.prompt, 1000),
+    }));
+  const s = d?.settings ?? {};
+  const settings = {
+    ...DEFAULT_SETTINGS,
+    sessionSize: int(s.sessionSize, 1, 200, DEFAULT_SETTINGS.sessionSize),
+    maxNew: int(s.maxNew, 0, 200, DEFAULT_SETTINGS.maxNew),
+    mode: ['typing', 'choice', 'flashcard'].includes(s.mode) ? s.mode : DEFAULT_SETTINGS.mode,
+    useAI: s.useAI !== false,
+    timerOn: s.timerOn !== false,
+    timerMinutes: int(s.timerMinutes, 15, 120, DEFAULT_SETTINGS.timerMinutes),
+  };
+  return { lists, cards, sentences, logs, settings };
+}
+
+/** Profil aus einer Sicherung: nur bekannte Felder mit passenden Werten übernehmen. */
+function cleanProfile(p) {
+  const id = String(p?.id ?? '');
+  if (!/^[\w-]{1,64}$/.test(id)) return null;
+  return {
+    id,
+    name: String(p.name ?? 'Kind').slice(0, 40),
+    age: Number.isInteger(p.age) && p.age >= 4 && p.age <= 20 ? p.age : null,
+    avatar: AVATARS.includes(p.avatar) ? p.avatar : AVATARS[0],
+    avatarImage: SAFE_IMAGE.test(p.avatarImage ?? '') ? p.avatarImage : null,
+    difficulty: ['auto', ...Object.keys(LEVELS)].includes(p.difficulty) ? p.difficulty : 'auto',
+  };
 }
 
 const DEFAULT_SETTINGS = {
@@ -130,12 +208,30 @@ export function deleteProfile(id) {
 }
 
 /** Wechselt das Kind. Die App wird neu geladen, damit nichts vom vorherigen Kind übrig bleibt. */
+const SWITCHED = 'vokabeltrainer-switched';
+
 export function switchProfile(id) {
   save();
   profiles.active = id;
   saveProfiles();
+  try {
+    sessionStorage.setItem(SWITCHED, String(Date.now()));
+  } catch {
+    // ohne sessionStorage wird nach dem Wechsel eben noch einmal gefragt
+  }
   location.hash = '#/lernen';
   location.reload();
+}
+
+/** Wurde die App gerade wegen eines Kinderwechsels neu geladen? (Dann nicht noch einmal fragen.) */
+export function justSwitched() {
+  try {
+    const at = Number(sessionStorage.getItem(SWITCHED));
+    sessionStorage.removeItem(SWITCHED);
+    return Date.now() - at < 10_000;
+  } catch {
+    return false;
+  }
 }
 
 // ---------- Daten des aktiven Kindes ----------
@@ -283,19 +379,18 @@ export function exportBackup() {
 export function importBackup(json) {
   const data = JSON.parse(json);
   if (data.format === 'vokabeltrainer-2' && Array.isArray(data.profiles)) {
+    const kids = data.profiles.map(cleanProfile).filter(Boolean);
+    if (!kids.length) throw new Error('Keine gültige Sicherung');
     for (const p of profiles.list) localStorage.removeItem(dataKey(p.id));
-    for (const p of data.profiles) writeJSON(dataKey(p.id), data.data?.[p.id] ?? emptyState());
-    profiles.list = data.profiles;
-    profiles.active = data.profiles[0]?.id;
+    for (const p of kids) writeJSON(dataKey(p.id), cleanData(data.data?.[p.id]));
+    profiles.list = kids;
+    profiles.active = kids[0].id;
     saveProfiles();
     return true;
   }
   if (!Array.isArray(data.lists) || !Array.isArray(data.cards)) throw new Error('Keine gültige Sicherung');
-  const settings = { ...data.settings };
-  delete settings.claudeKey;
-  delete settings.name;
   for (const key of Object.keys(db)) delete db[key];
-  Object.assign(db, emptyState(currentLevel()), data, { settings: { ...DEFAULT_SETTINGS, ...settings } });
+  Object.assign(db, cleanData(data));
   save();
   return false;
 }
