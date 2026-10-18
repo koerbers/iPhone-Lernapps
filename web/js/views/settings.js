@@ -179,7 +179,13 @@ export function renderSettings(root) {
         status(`❌ ${e.message}`);
       }
     },
-    export: () => exportBackup(),
+    export: async () => {
+      try {
+        await exportBackup();
+      } catch (e) {
+        alert('Sicherung fehlgeschlagen: ' + e.message);
+      }
+    },
     sample: () => {
       insertSampleData();
       renderSettings(root);

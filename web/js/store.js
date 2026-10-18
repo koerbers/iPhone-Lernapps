@@ -6,6 +6,7 @@
 // eigenen Speicherbereich mit Listen, Lernstand, Statistik und Einstellungen. `db` enthält
 // immer die Daten des gerade aktiven Kindes. Der Claude-Schlüssel gilt für alle Kinder.
 import { LEVELS, levelOf } from './level.js';
+import { plugin } from './platform.js';
 import { MAX_BOX, newState } from './srs.js';
 import { SUBJECT_IDS } from './subjects.js';
 import { esc } from './ui.js';
@@ -356,17 +357,29 @@ export function addLog(entry) {
 // ---------- Sicherung ----------
 
 /** Sicherung aller Kinder (ohne Claude-Schlüssel) als Datei. */
-export function exportBackup() {
+export async function exportBackup() {
   save();
   const backup = {
     format: 'vokabeltrainer-2',
     profiles: profiles.list,
     data: Object.fromEntries(profiles.list.map((p) => [p.id, readJSON(dataKey(p.id))])),
   };
-  const blob = new Blob([JSON.stringify(backup, null, 1)], { type: 'application/json' });
+  const json = JSON.stringify(backup, null, 1);
+  const name = `vokabeltrainer-sicherung-${new Date().toISOString().slice(0, 10)}.json`;
+  const fs = plugin('Filesystem');
+  if (fs) {
+    // In der App gibt es keine Downloads: Datei ablegen und über „Teilen“ sichern (Dateien, iCloud, Drive, Mail …)
+    const { uri } = await fs.writeFile({ path: name, data: json, directory: 'CACHE', encoding: 'utf8' });
+    try {
+      await plugin('Share').share({ title: 'Vokabeltrainer-Sicherung', files: [uri] });
+    } catch (e) {
+      if (!/cancel/i.test(e?.message ?? '')) throw e; // Abbrechen ist kein Fehler
+    }
+    return;
+  }
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `vokabeltrainer-sicherung-${new Date().toISOString().slice(0, 10)}.json`;
+  a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+  a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
