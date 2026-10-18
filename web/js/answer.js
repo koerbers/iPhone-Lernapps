@@ -19,8 +19,8 @@ const OPTIONAL_PREFIXES = [
   'ich ', 'du ', 'er ', 'sie ', 'es ', 'wir ', 'ihr ',
 ];
 
-export function check(input, expected) {
-  return checkMeanings(input, expected).result;
+export function check(input, expected, options) {
+  return checkMeanings(input, expected, options).result;
 }
 
 /**
@@ -28,8 +28,9 @@ export function check(input, expected) {
  * @returns {{result: string, meanings: string[], matched: number[], missing: string[]}}
  *   meanings = alle Bedeutungen der Lösung, matched = Nummern der genannten Bedeutungen,
  *   missing = Bedeutungen, die nicht genannt wurden
+ * @param {{typoBonus?: number}} [options] typoBonus: mehr (+1) oder weniger (-1) Tippfehler erlaubt – je nach Alter
  */
-export function checkMeanings(input, expected) {
+export function checkMeanings(input, expected, { typoBonus = 0 } = {}) {
   const meanings = split(expected);
   const variants = meanings.map(alternatives);
   const whole = normalize(expected);
@@ -55,7 +56,7 @@ export function checkMeanings(input, expected) {
   // Kleiner Tippfehler
   for (const g of given) {
     variants.forEach((v, i) => {
-      if (v.some((s) => levenshtein(g, s) <= tolerance(s))) matched.add(i);
+      if (v.some((s) => levenshtein(g, s) <= tolerance(s, typoBonus))) matched.add(i);
     });
   }
   return outcome(matched.size ? ALMOST : WRONG, matched);
@@ -151,10 +152,12 @@ export function normalize(text) {
   return t;
 }
 
-export function tolerance(solution) {
-  if (solution.length < 4) return 0;
-  if (solution.length < 9) return 1;
-  return 2;
+export function tolerance(solution, typoBonus = 0) {
+  let base = 2;
+  if (solution.length < 4) base = 0;
+  else if (solution.length < 9) base = 1;
+  // Leicht: auch kurze Wörter dürfen einen Tippfehler haben; schwer: einer weniger
+  return Math.max(0, base + typoBonus - (solution.length < 3 ? 1 : 0));
 }
 
 export function levenshtein(a, b) {

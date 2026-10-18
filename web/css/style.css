@@ -126,6 +126,25 @@ a { color: var(--accent); }
 .card.info { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
 .card > .btn.large { margin-top: 10px; }
 
+.avatar { font-size: 24px; line-height: 1; }
+.avatar.big { font-size: 48px; }
+.profile-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px;
+  border-radius: 999px; background: var(--surface); color: var(--text); text-decoration: none; font-weight: 600;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+.profile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin: 12px 0; }
+.profile-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 10px;
+  border: 2px solid transparent; border-radius: var(--radius); background: var(--surface); color: var(--text);
+  font: inherit; cursor: pointer;
+}
+.profile-card.active { border-color: var(--accent); }
+.profile-card.add { color: var(--accent); }
+.avatar-picker { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 6px; }
+.avatar-picker input { position: absolute; opacity: 0; pointer-events: none; }
+.avatar-picker span { display: block; text-align: center; font-size: 28px; padding: 6px 0; border-radius: 10px; cursor: pointer; }
+.avatar-picker input:checked + span { background: color-mix(in srgb, var(--accent) 20%, transparent); outline: 2px solid var(--accent); }
 .hello { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .streak { display: flex; flex-direction: column; align-items: center; font-size: 14px; }
 .streak span { font-size: 34px; line-height: 1; }
@@ -324,6 +343,7 @@ textarea.answer-input { font-size: 19px; margin-bottom: 8px; }
 .btn.choice.wrong { background: var(--bad-bg); border-color: var(--bad); color: var(--bad-text); }
 .btn.choice.dim { opacity: 0.5; }
 
+.hint-text { text-align: center; font-size: 24px; letter-spacing: 3px; font-weight: 700; color: var(--accent); margin: 6px 0; }
 .grammar { margin-top: 8px; color: var(--text-2); }
 .grammar strong { color: var(--text); }
 .revealed { font-size: 28px; font-weight: 800; text-align: center; color: var(--blue); margin: 10px 0; }

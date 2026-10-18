@@ -1,8 +1,8 @@
 // Vokabeln üben: Auswahl der Listen/Richtung/Abfrageart und die Übungsrunde selbst.
-import { CORRECT, WRONG, checkMeanings } from '../answer.js';
+import { CORRECT, WRONG, checkMeanings, levenshtein, normalize, split } from '../answer.js';
 import { createSession, currentItem, recordAnswer } from '../session.js';
 import { buildSession, dueCount, shuffle } from '../srs.js';
-import { addLog, cardsOf, db, getList, lessonsOf, listsOf, save } from '../store.js';
+import { addLog, cardsOf, currentLevel, db, getList, lessonsOf, listsOf, save } from '../store.js';
 import { SUBJECTS, answerOf, dirLabel, promptOf } from '../subjects.js';
 import { closeOverlay, esc, onAction, openOverlay, resultScreen, speakButton, speakEnglish } from '../ui.js';
 import { cardDialog } from './lists.js';
@@ -28,7 +28,10 @@ export function renderPracticeSetup(root, subjectId) {
   if (!subject) return (location.hash = '#/lernen');
   const lists = listsOf(subjectId);
   // lessonOff: abgewählte Lektionen (neue Lektionen sind automatisch ausgewählt)
-  const c = (choices[subjectId] ??= { listIds: new Set(lists.map((l) => l.id)), lessonOff: new Set(), dirChoice: 'both' });
+  // Jüngere Kinder starten bei Englisch mit der leichteren Richtung (Englisch → Deutsch)
+  const c = (choices[subjectId] ??= {
+    listIds: new Set(lists.map((l) => l.id)), lessonOff: new Set(), dirChoice: currentLevel().defaultDir,
+  });
   // neu angelegte Listen automatisch auswählen
   for (const l of lists) if (!c.known?.has(l.id)) c.listIds.add(l.id);
   c.known = new Set(lists.map((l) => l.id));
@@ -217,7 +220,7 @@ function runSession(ctx) {
       const input = root.querySelector('#answer');
       if (!input.value.trim()) return input.focus();
       const item = currentItem(ctx.session);
-      const c = checkMeanings(input.value, answerOf(item.card, item.dir));
+      const c = checkMeanings(input.value, answerOf(item.card, item.dir), { typoBonus: currentLevel().typoBonus });
       const named = c.matched.map((i) => c.meanings[i]);
       ctx.ui.input = input.value;
       if (item.moreOf) {
@@ -245,6 +248,16 @@ function runSession(ctx) {
       const item = currentItem(ctx.session);
       const list = getList(item.card.listId);
       if (list && (await cardDialog(list, item.card))) draw(root, ctx);
+    },
+    hint: () => {
+      // Tipp (Stufe „Leicht“): jedes Antippen verrät einen Buchstaben mehr
+      ctx.ui.hintLetters = (ctx.ui.hintLetters ?? 0) + 1;
+      const input = root.querySelector('#answer');
+      const typed = input?.value ?? '';
+      draw(root, ctx);
+      const again = root.querySelector('#answer');
+      if (again) again.value = typed;
+      again?.focus();
     },
     reveal: () => {
       ctx.ui.revealed = true;
@@ -324,9 +337,31 @@ function prepare(ctx) {
   const item = currentItem(ctx.session);
   if (item && ctx.mode === 'choice') {
     const answer = answerOf(item.card, item.dir);
-    const wrong = shuffle((ctx.distractors[item.dir] ?? []).filter((a) => a !== answer)).slice(0, 3);
+    const others = (ctx.distractors[item.dir] ?? []).filter((a) => a !== answer);
+    // Stufe „Schwer“: ähnlich aussehende falsche Antworten, sonst zufällige
+    const wrong = currentLevel().similarDistractors ? mostSimilar(answer, others, 3) : shuffle(others).slice(0, 3);
     ctx.ui.choices = shuffle([...wrong, answer]);
   }
+}
+
+/** Die `count` Antworten, die der richtigen am ähnlichsten sehen (mit etwas Zufall). */
+function mostSimilar(answer, others, count) {
+  const a = normalize(answer);
+  return others
+    .map((o) => {
+      const b = normalize(o);
+      const sameStart = a[0] && a[0] === b[0] ? -1 : 0;
+      return { o, d: levenshtein(a, b) / Math.max(a.length, b.length, 1) + sameStart * 0.2 + Math.random() * 0.15 };
+    })
+    .sort((x, y) => x.d - y.d)
+    .slice(0, count)
+    .map((x) => x.o);
+}
+
+/** Tipp: Anfang der (ersten) Lösung, Rest als Striche – z. B. „Ha__“ */
+function hintText(answer, letters) {
+  const first = split(answer)[0] ?? answer;
+  return [...first].map((ch, i) => (i < letters || /[\s,'-]/.test(ch) ? ch : '_')).join('');
 }
 
 function draw(root, ctx) {
@@ -417,8 +452,10 @@ function modeArea(ctx, item, answer, english) {
         ${result === WRONG ? '<button class="btn large" data-action="override">Ich hatte recht</button>' : ''}
         <button class="btn primary large" data-action="next">Weiter</button>
       </div>` : `
+      ${ctx.ui.hintLetters ? `<p class="hint-text">💡 ${esc(hintText(answer, ctx.ui.hintLetters))}</p>` : ''}
       <div class="row">
         <button class="btn large" data-action="dontKnow">Weiß ich nicht</button>
+        ${currentLevel().hint ? '<button class="btn large" data-action="hint">💡 Tipp</button>' : ''}
         <button class="btn primary large" data-action="check">Prüfen</button>
       </div>`}`;
 }

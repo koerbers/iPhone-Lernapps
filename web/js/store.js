@@ -1,50 +1,148 @@
 // Speichert alle Daten im Browser des Geräts (localStorage).
 // Wichtig: Die Daten liegen nur auf diesem Gerät. Über „Sicherung“ in den
 // Einstellungen kann man sie als Datei exportieren und woanders importieren.
+//
+// Mehrere Kinder: Jedes Kind hat ein Profil (Name, Alter, Avatar, Schwierigkeit) und einen
+// eigenen Speicherbereich mit Listen, Lernstand, Statistik und Einstellungen. `db` enthält
+// immer die Daten des gerade aktiven Kindes. Der Claude-Schlüssel gilt für alle Kinder.
+import { LEVELS, levelOf } from './level.js';
 import { newState } from './srs.js';
 
-const KEY = 'vokabeltrainer-v1';
+const LEGACY_KEY = 'vokabeltrainer-v1'; // Version ohne Profile
+const PROFILES_KEY = 'vokabeltrainer-profiles';
+const dataKey = (profileId) => `vokabeltrainer-data-${profileId}`;
+
+export const AVATARS = ['🦊', '🐼', '🦁', '🐸', '🐧', '🦄', '🐯', '🐨', '🐙', '🦉', '🐬', '🐝'];
 
 const DEFAULT_SETTINGS = {
-  name: '',
   sessionSize: 20,
   maxNew: 10,
   mode: 'typing',
   useAI: true,
-  claudeKey: '',
   timerOn: true,
   timerMinutes: 15,
 };
 
-function emptyState() {
-  return { lists: [], cards: [], sentences: [], logs: [], settings: { ...DEFAULT_SETTINGS } };
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+
+function emptyState(level = LEVELS.medium) {
+  return {
+    lists: [], cards: [], sentences: [], logs: [],
+    settings: { ...DEFAULT_SETTINGS, sessionSize: level.sessionSize, maxNew: level.maxNew },
+  };
 }
 
-function load() {
+function readJSON(key) {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return emptyState();
-    const data = JSON.parse(raw);
-    return { ...emptyState(), ...data, settings: { ...DEFAULT_SETTINGS, ...data.settings } };
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return emptyState();
+    return null;
   }
 }
 
-export const db = load();
-
-export function save() {
+function writeJSON(key, value) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(db));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch (e) {
     alert('Speichern fehlgeschlagen: ' + e.message);
   }
 }
 
+// ---------- Profile ----------
+
+function loadProfiles() {
+  const stored = readJSON(PROFILES_KEY);
+  if (stored?.list?.length) return { claudeKey: '', ...stored };
+
+  // Erster Start – oder Umstieg von der Version ohne Profile: vorhandene Daten ins erste Profil
+  const legacy = readJSON(LEGACY_KEY);
+  const profile = { id: uid(), name: legacy?.settings?.name || 'Kind 1', age: null, avatar: AVATARS[0], difficulty: 'auto' };
+  const state = { list: [profile], active: profile.id, claudeKey: legacy?.settings?.claudeKey ?? '' };
+  if (legacy) {
+    delete legacy.settings?.claudeKey;
+    delete legacy.settings?.name;
+    writeJSON(dataKey(profile.id), legacy);
+    localStorage.removeItem(LEGACY_KEY);
+  }
+  writeJSON(PROFILES_KEY, state);
+  return state;
+}
+
+export const profiles = loadProfiles();
+
+export function saveProfiles() {
+  writeJSON(PROFILES_KEY, profiles);
+}
+
+export function activeProfile() {
+  return profiles.list.find((p) => p.id === profiles.active) ?? profiles.list[0];
+}
+
+/** Schwierigkeitsstufe des aktiven Kindes (siehe level.js) */
+export function currentLevel() {
+  return levelOf(activeProfile());
+}
+
+export function getClaudeKey() {
+  return profiles.claudeKey ?? '';
+}
+
+export function setClaudeKey(key) {
+  profiles.claudeKey = key;
+  saveProfiles();
+}
+
+export function addProfile({ name, age, avatar }) {
+  const profile = { id: uid(), name, age: age || null, avatar: avatar || AVATARS[profiles.list.length % AVATARS.length], difficulty: 'auto' };
+  profiles.list.push(profile);
+  saveProfiles();
+  writeJSON(dataKey(profile.id), emptyState(levelOf(profile)));
+  return profile;
+}
+
+export function updateProfile(id, fields) {
+  Object.assign(profiles.list.find((p) => p.id === id), fields);
+  saveProfiles();
+}
+
+/** Löscht ein Kind mit allen Daten (das letzte Profil bleibt immer erhalten). */
+export function deleteProfile(id) {
+  if (profiles.list.length <= 1) return;
+  if (profiles.active === id) activeDeleted = true; // ab jetzt nichts mehr speichern (App lädt neu)
+  profiles.list = profiles.list.filter((p) => p.id !== id);
+  localStorage.removeItem(dataKey(id));
+  if (profiles.active === id) profiles.active = profiles.list[0].id;
+  saveProfiles();
+}
+
+/** Wechselt das Kind. Die App wird neu geladen, damit nichts vom vorherigen Kind übrig bleibt. */
+export function switchProfile(id) {
+  save();
+  profiles.active = id;
+  saveProfiles();
+  location.hash = '#/lernen';
+  location.reload();
+}
+
+// ---------- Daten des aktiven Kindes ----------
+
+function loadData(profile) {
+  const data = readJSON(dataKey(profile.id));
+  const base = emptyState(levelOf(profile));
+  if (!data) return base;
+  return { ...base, ...data, settings: { ...base.settings, ...data.settings } };
+}
+
+export const db = loadData(activeProfile());
+let activeDeleted = false;
+
+export function save() {
+  if (!activeDeleted) writeJSON(dataKey(profiles.active), db);
+}
+
 // Bittet den Browser, die Daten nicht automatisch zu löschen.
 navigator.storage?.persist?.();
-
-const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 
 // ---------- Listen ----------
 
@@ -148,10 +246,15 @@ export function addLog(entry) {
 
 // ---------- Sicherung ----------
 
+/** Sicherung aller Kinder (ohne Claude-Schlüssel) als Datei. */
 export function exportBackup() {
-  const blob = new Blob([JSON.stringify({ ...db, settings: { ...db.settings, claudeKey: '' } }, null, 1)], {
-    type: 'application/json',
-  });
+  save();
+  const backup = {
+    format: 'vokabeltrainer-2',
+    profiles: profiles.list,
+    data: Object.fromEntries(profiles.list.map((p) => [p.id, readJSON(dataKey(p.id))])),
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `vokabeltrainer-sicherung-${new Date().toISOString().slice(0, 10)}.json`;
@@ -159,13 +262,45 @@ export function exportBackup() {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
+/**
+ * Lädt eine Sicherung. Sicherung mit allen Kindern → ersetzt alle Kinder.
+ * Ältere Sicherung (ein Kind) → ersetzt nur die Daten des aktiven Kindes.
+ * @returns {boolean} true, wenn die App neu geladen werden muss
+ */
 export function importBackup(json) {
   const data = JSON.parse(json);
+  if (data.format === 'vokabeltrainer-2' && Array.isArray(data.profiles)) {
+    for (const p of profiles.list) localStorage.removeItem(dataKey(p.id));
+    for (const p of data.profiles) writeJSON(dataKey(p.id), data.data?.[p.id] ?? emptyState());
+    profiles.list = data.profiles;
+    profiles.active = data.profiles[0]?.id;
+    saveProfiles();
+    return true;
+  }
   if (!Array.isArray(data.lists) || !Array.isArray(data.cards)) throw new Error('Keine gültige Sicherung');
-  const key = db.settings.claudeKey;
-  Object.assign(db, emptyState(), data);
-  db.settings = { ...DEFAULT_SETTINGS, ...data.settings, claudeKey: key };
+  const settings = { ...data.settings };
+  delete settings.claudeKey;
+  delete settings.name;
+  for (const key of Object.keys(db)) delete db[key];
+  Object.assign(db, emptyState(currentLevel()), data, { settings: { ...DEFAULT_SETTINGS, ...settings } });
   save();
+  return false;
+}
+
+/** Kopiert eine Liste (mit Vokabeln und Sätzen, ohne Lernstand) zu einem anderen Kind. */
+export function copyListToProfile(listId, profileId) {
+  const list = getList(listId);
+  const target = readJSON(dataKey(profileId)) ?? emptyState();
+  target.sentences ??= [];
+  const newList = { ...list, id: uid(), createdAt: Date.now() };
+  target.lists.push(newList);
+  for (const c of cardsOf([listId])) {
+    target.cards.push({ id: uid(), listId: newList.id, term: c.term, translation: c.translation, note: c.note, lesson: c.lesson ?? '', createdAt: c.createdAt });
+  }
+  for (const x of sentencesOf([listId])) {
+    target.sentences.push({ ...x, id: uid(), listId: newList.id, correct: 0, wrong: 0 });
+  }
+  writeJSON(dataKey(profileId), target);
 }
 
 // ---------- Beispieldaten ----------

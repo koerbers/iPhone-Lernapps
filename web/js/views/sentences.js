@@ -6,7 +6,7 @@
 import { gradeTranslation, isConfigured, makeSentences } from '../ai.js';
 import { normalize, sentenceSimilarity } from '../answer.js';
 import { priority, stateOf } from '../srs.js';
-import { addLog, cardsOf, lessonsOf, listsOf, save, sentencesOf } from '../store.js';
+import { addLog, cardsOf, currentLevel, lessonsOf, listsOf, save, sentencesOf } from '../store.js';
 import { SUBJECTS, sourceLang, targetLang } from '../subjects.js';
 import { closeOverlay, esc, onAction, openOverlay, resultScreen, speakButton, speakEnglish } from '../ui.js';
 
@@ -185,7 +185,8 @@ function runRound(round) {
       if (exercise.solutions) {
         // Satz aus dem Buch: mit der Lösung aus dem Buch vergleichen
         const similarity = Math.max(...exercise.solutions.map((x) => sentenceSimilarity(st.answer, x)));
-        if (similarity >= 0.9) {
+        // Wie genau es sein muss, hängt von der Stufe (Alter) ab
+        if (similarity >= currentLevel().sentenceMatch) {
           st.grade = {
             correct: true,
             feedback: similarity === 1 ? 'Perfekt – genau wie im Buch!' : 'Richtig – nur kleine Abweichungen vom Buch.',

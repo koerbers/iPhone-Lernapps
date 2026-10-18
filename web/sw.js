@@ -1,6 +1,6 @@
 // Service Worker: speichert die App-Dateien, damit sie auch ohne Internet startet.
 // Online wird immer zuerst die neueste Version geladen.
-const CACHE = 'vokabeltrainer-v6';
+const CACHE = 'vokabeltrainer-v7';
 
 const FILES = [
   './',
@@ -10,6 +10,7 @@ const FILES = [
   'icons/icon-192.png',
   'icons/apple-touch-icon.png',
   'js/layout.js',
+  'js/level.js',
   'js/main.js',
   'js/ai.js',
   'js/answer.js',
@@ -25,6 +26,7 @@ const FILES = [
   'js/views/import.js',
   'js/views/lists.js',
   'js/views/practice.js',
+  'js/views/profiles.js',
   'js/views/sentences.js',
   'js/views/settings.js',
   'js/views/stats.js',
