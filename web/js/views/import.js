@@ -1,9 +1,14 @@
 // Vokabeln aus Fotos, PDFs oder eingefügtem Text übernehmen.
+// Ablauf: Quelle wählen → (Frage: Seiten Lektionen zuordnen?) → Erkennen → Prüfen → Speichern
 import { extractVocabulary, isConfigured } from '../ai.js';
 import { normalize } from '../answer.js';
 import { fixOcrAccents, parse } from '../parser.js';
-import { canvasToJpegBase64, pdfPagesAsCanvases, recognizeImage, recognizePdf, terminateOcr, toCanvas } from '../ocr.js';
-import { addCard, addList, cardsOf, db, getList, save } from '../store.js';
+import {
+  canvasToJpegBase64, pdfPagesAsCanvases, pdfThumbnails, recognizeImage, recognizePdf, terminateOcr, toCanvas,
+} from '../ocr.js';
+import {
+  addCard, addList, addSentence, cardsOf, cleanLesson, db, getList, lessonsOf, save, sentencesOf,
+} from '../store.js';
 import { SUBJECTS, SUBJECT_IDS } from '../subjects.js';
 import { esc, onAction } from '../ui.js';
 
@@ -11,13 +16,20 @@ import { esc, onAction } from '../ui.js';
 let imp = freshState();
 
 function freshState(listId = '') {
-  return { stage: 'pick', listId, newName: '', newSubject: 'english', message: '', pairs: [], notice: '', rawText: '', pasted: '' };
+  return {
+    stage: 'pick', // pick | ask | assign | busy | review
+    listId, newName: '', newSubject: 'english', message: '', pairs: [], notice: '', rawText: '', pasted: '', pasteLesson: '',
+    sentences: [], // Beispielsätze: { prompt, solutions[], lesson, include }
+    files: [],
+    units: [], // eine Einheit pro PDF-Seite bzw. Foto: { fileIndex, label, thumb, lesson, explicit }
+  };
 }
 
 export function renderImport(root, listId) {
   if (listId && imp.listId !== listId && imp.stage === 'pick') imp.listId = listId;
+  const views = { pick: pickView, ask: askView, assign: assignView, busy: busyView, review: reviewView };
   const draw = () => {
-    root.innerHTML = imp.stage === 'busy' ? busyView() : imp.stage === 'review' ? reviewView() : pickView();
+    root.innerHTML = (views[imp.stage] ?? pickView)();
   };
   draw();
 
@@ -33,18 +45,30 @@ export function renderImport(root, listId) {
       save();
     }
     if (t.name === 'files' && t.files.length) {
-      await processFiles([...t.files], draw);
+      await prepareFiles([...t.files], draw);
     }
+    if (t.dataset.unit) setUnitLesson(root, Number(t.dataset.unit), t.value);
   };
 
   root.oninput = (event) => {
     const t = event.target;
     if (t.name === 'newName') imp.newName = t.value;
     if (t.name === 'pasted') imp.pasted = t.value;
+    if (t.name === 'pasteLesson') imp.pasteLesson = t.value;
     if (t.dataset.field) imp.pairs[Number(t.dataset.row)][t.dataset.field] = t.value;
+    if (t.dataset.sfield === 'prompt') imp.sentences[Number(t.dataset.srow)].prompt = t.value;
+    if (t.dataset.sfield === 'solutions') {
+      imp.sentences[Number(t.dataset.srow)].solutions = t.value.split(' / ').map((x) => x.trim()).filter(Boolean);
+    }
   };
 
   onAction(root, {
+    lessonsYes: () => {
+      imp.stage = 'assign';
+      draw();
+    },
+    lessonsNo: () => processFiles(imp.files, null, draw),
+    startImport: () => processFiles(imp.files, imp.units.map((u) => u.lesson), draw),
     paste: async () => {
       if (!imp.pasted.trim()) return;
       await processText(imp.pasted, draw);
@@ -54,12 +78,21 @@ export function renderImport(root, listId) {
       pair.include = !pair.include;
       draw();
     },
+    toggleSentence: (el) => {
+      const sentence = imp.sentences[Number(el.dataset.srow)];
+      sentence.include = !sentence.include;
+      draw();
+    },
+    removeSentence: (el) => {
+      imp.sentences.splice(Number(el.dataset.srow), 1);
+      draw();
+    },
     removeRow: (el) => {
       imp.pairs.splice(Number(el.dataset.row), 1);
       draw();
     },
     addRow: () => {
-      imp.pairs.push({ term: '', translation: '', note: '', include: true });
+      imp.pairs.push({ term: '', translation: '', note: '', lesson: imp.pairs.at(-1)?.lesson ?? '', include: true });
       draw();
     },
     swap: () => {
@@ -68,6 +101,10 @@ export function renderImport(root, listId) {
     },
     back: () => {
       imp.stage = 'pick';
+      draw();
+    },
+    toAsk: () => {
+      imp.stage = 'ask';
       draw();
     },
     save: () => {
@@ -121,6 +158,10 @@ function pickView() {
     <section class="card">
       <h3>Oder Text einfügen</h3>
       <textarea name="pasted" rows="5" placeholder="house – Haus&#10;to go – gehen">${esc(imp.pasted)}</textarea>
+      <label class="field">Lektion (optional)
+        <input name="pasteLesson" value="${esc(imp.pasteLesson)}" placeholder="z. B. Lektion 3" ${lessonDatalistAttr()}>
+      </label>
+      ${lessonDatalist()}
       <button class="btn" data-action="paste">Text übernehmen</button>
     </section>
 
@@ -135,6 +176,67 @@ function pickView() {
     </section>`;
 }
 
+/** Vorschlagsliste mit den Lektionen der Ziel-Liste */
+function lessonDatalist() {
+  const lessons = imp.listId ? lessonsOf(imp.listId).filter(Boolean) : [];
+  return `<datalist id="import-lessons">${lessons.map((l) => `<option value="${esc(l)}">`).join('')}</datalist>`;
+}
+
+function lessonDatalistAttr() {
+  return 'list="import-lessons" autocomplete="off"';
+}
+
+function askView() {
+  const count = imp.units.length;
+  return `
+    <button class="back link" data-action="back">‹ Zurück</button>
+    <h1>Lektionen zuordnen?</h1>
+    <section class="card">
+      <p>${count === 1 ? 'Die Seite' : `Die ${count} Seiten`} kannst du vor dem Import Lektionen zuordnen.
+      Dann kannst du später gezielt einzelne Lektionen lernen.</p>
+      <div class="thumb-strip">${imp.units.slice(0, 8).map((u) => `<img src="${u.thumb}" alt="">`).join('')}${count > 8 ? `<span class="muted">+${count - 8}</span>` : ''}</div>
+      <button class="btn primary large" data-action="lessonsYes">📑 Ja, Seiten Lektionen zuordnen</button>
+      <button class="btn large" data-action="lessonsNo">Nein, ohne Lektionen importieren</button>
+    </section>`;
+}
+
+function assignView() {
+  return `
+    <button class="back link" data-action="toAsk">‹ Zurück</button>
+    <h1>📑 Seiten → Lektionen</h1>
+    <p class="hint">Trage bei der <strong>ersten Seite</strong> einer Lektion ihren Namen ein (z. B. „1“ oder „Lektion 1“) –
+    die folgenden Seiten übernehmen ihn automatisch, bis du bei einer späteren Seite eine neue Lektion einträgst.</p>
+    ${lessonDatalist()}
+    <div class="pages">
+      ${imp.units.map((u, i) => `
+        <div class="page-row">
+          <img src="${u.thumb}" alt="Seite ${i + 1}" loading="lazy">
+          <label class="field grow">${esc(u.label)}
+            <input data-unit="${i}" value="${esc(u.lesson)}" placeholder="Lektion" ${lessonDatalistAttr()}
+              class="${u.explicit ? 'explicit' : ''}">
+          </label>
+        </div>`).join('')}
+    </div>
+    <button class="btn primary large sticky-bottom" data-action="startImport">▶︎ Import starten</button>`;
+}
+
+/** Lektion einer Seite setzen; folgende Seiten ohne eigene Angabe übernehmen sie. */
+function setUnitLesson(root, index, value) {
+  const lesson = cleanLesson(value);
+  imp.units[index].lesson = lesson;
+  imp.units[index].explicit = Boolean(lesson);
+  for (let j = index + 1; j < imp.units.length && !imp.units[j].explicit; j++) {
+    imp.units[j].lesson = lesson;
+  }
+  // Felder direkt aktualisieren (kein Neuzeichnen, damit die Tastatur offen bleibt)
+  imp.units.forEach((u, j) => {
+    const input = root.querySelector(`[data-unit="${j}"]`);
+    if (input && document.activeElement !== input) input.value = u.lesson;
+    input?.classList.toggle('explicit', u.explicit);
+  });
+  root.querySelector(`[data-unit="${index}"]`).value = lesson;
+}
+
 function busyView() {
   return `
     <h1>📷 Vokabeln importieren</h1>
@@ -147,6 +249,7 @@ function busyView() {
 function reviewView() {
   const subject = SUBJECTS[targetSubject()];
   const included = imp.pairs.filter((p) => p.include).length;
+  const sentencesIncluded = imp.sentences.filter((x) => x.include).length;
   return `
     <button class="back link" data-action="back">‹ Zurück</button>
     <h1>Vokabeln prüfen</h1>
@@ -158,51 +261,121 @@ function reviewView() {
       <button class="btn" data-action="addRow">＋ Zeile</button>
     </div>
     <div class="review">
+      ${lessonDatalist()}
       ${imp.pairs.map((p, i) => `
+        ${p.lesson && p.lesson !== imp.pairs[i - 1]?.lesson ? `<h3 class="lesson-head">📑 ${esc(p.lesson)}</h3>` : ''}
         <div class="review-row ${p.include ? '' : 'off'}">
           <button class="icon-btn check ${p.include ? 'on' : ''}" data-action="toggleRow" data-row="${i}" aria-label="Zeile übernehmen">✓</button>
           <div class="grow">
             <input data-row="${i}" data-field="term" value="${esc(p.term)}" placeholder="${subject.name}" autocapitalize="off" autocorrect="off">
             <input data-row="${i}" data-field="translation" value="${esc(p.translation)}" placeholder="Deutsch">
-            <input class="note-input" data-row="${i}" data-field="note" value="${esc(p.note)}" placeholder="Notiz (z. B. m, f, Adv.)">
+            <div class="row tight">
+              <input class="note-input" data-row="${i}" data-field="note" value="${esc(p.note)}" placeholder="Notiz (z. B. m, f, Adv.)">
+              <input class="note-input lesson-input" data-row="${i}" data-field="lesson" value="${esc(p.lesson)}" placeholder="Lektion" ${lessonDatalistAttr()}>
+            </div>
           </div>
           <button class="icon-btn" data-action="removeRow" data-row="${i}" aria-label="Zeile löschen">🗑</button>
         </div>`).join('')}
     </div>
+    ${sentencesSection(subject)}
     ${imp.rawText ? `
       <details class="card">
         <summary>Erkannter Text anzeigen</summary>
         <pre class="raw">${esc(imp.rawText)}</pre>
       </details>` : ''}
-    <button class="btn primary large sticky-bottom" data-action="save" ${included ? '' : 'disabled'}>${included} Vokabeln übernehmen</button>`;
+    <button class="btn primary large sticky-bottom" data-action="save" ${included || sentencesIncluded ? '' : 'disabled'}>
+      ${included} Vokabeln${sentencesIncluded ? ` + ${sentencesIncluded} Sätze` : ''} übernehmen
+    </button>`;
+}
+
+/** Gefundene Beispielsätze (werden als Übungssätze für „Sätze übersetzen“ gespeichert). */
+function sentencesSection(subject) {
+  if (!imp.sentences.length) return '';
+  const included = imp.sentences.filter((x) => x.include).length;
+  return `
+    <h2 class="section-title">📝 Beispielsätze (${included} von ${imp.sentences.length})</h2>
+    <p class="hint">Diese Sätze aus dem Buch werden als Übungssätze gespeichert (Lernen → Sätze übersetzen → „Sätze aus dem Buch“).
+    Oben ${subject.name}, darunter die Übersetzung – mehrere Übersetzungen mit „ / “ trennen.</p>
+    <div class="review">
+      ${imp.sentences.map((x, i) => `
+        ${x.lesson && x.lesson !== imp.sentences[i - 1]?.lesson ? `<h3 class="lesson-head">📑 ${esc(x.lesson)}</h3>` : ''}
+        <div class="review-row ${x.include ? '' : 'off'}">
+          <button class="icon-btn check ${x.include ? 'on' : ''}" data-action="toggleSentence" data-srow="${i}" aria-label="Satz übernehmen">✓</button>
+          <div class="grow">
+            <input data-srow="${i}" data-sfield="prompt" value="${esc(x.prompt)}" placeholder="${subject.name}" autocapitalize="off" autocorrect="off">
+            <input data-srow="${i}" data-sfield="solutions" value="${esc(x.solutions.join(' / '))}" placeholder="Deutsch">
+          </div>
+          <button class="icon-btn" data-action="removeSentence" data-srow="${i}" aria-label="Satz löschen">🗑</button>
+        </div>`).join('')}
+    </div>`;
 }
 
 // ---------- Verarbeitung ----------
 
-async function processFiles(files, draw) {
+/** Nach der Dateiauswahl: Vorschaubilder erzeugen und fragen, ob Lektionen zugeordnet werden sollen. */
+async function prepareFiles(files, draw) {
+  imp = { ...imp, files, units: [], stage: 'busy', message: 'Seiten werden vorbereitet …', notice: '' };
+  draw();
+  try {
+    for (const [fileIndex, file] of files.entries()) {
+      const prefix = files.length > 1 ? `Datei ${fileIndex + 1}, ` : '';
+      if (isPdf(file)) {
+        const thumbs = await pdfThumbnails(file);
+        thumbs.forEach((thumb, p) => imp.units.push({ fileIndex, label: `${prefix}Seite ${p + 1}`, thumb, lesson: '', explicit: false }));
+      } else {
+        const thumb = (await toCanvas(file, 360)).toDataURL('image/jpeg', 0.7);
+        imp.units.push({ fileIndex, label: files.length > 1 ? `Foto ${fileIndex + 1}` : 'Foto', thumb, lesson: '', explicit: false });
+      }
+    }
+    imp.stage = 'ask';
+    draw();
+  } catch (e) {
+    // Vorschau nicht möglich (z. B. offline) → ohne Lektionen weiter
+    imp.notice = `Vorschau nicht möglich (${e.message}).`;
+    await processFiles(files, null, draw);
+  }
+}
+
+function isPdf(file) {
+  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+}
+
+/**
+ * Erkennt die Vokabeln aller Dateien.
+ * @param {string[] | null} lessons Lektion pro Seite/Foto (in der Reihenfolge von imp.units) oder null
+ */
+async function processFiles(files, lessons, draw) {
   const subject = targetSubject();
   const useAI = db.settings.useAI && isConfigured();
   const languages = SUBJECTS[subject].ocrLang;
   const found = [];
-  imp = { ...imp, stage: 'busy', notice: '', rawText: '' };
+  const foundSentences = [];
+  imp = { ...imp, stage: 'busy', rawText: '' };
 
   const setMessage = (text) => {
     imp.message = text;
     draw();
   };
+  // Lektion für Seite `page` von Datei `fileIndex`
+  const lessonFor = (fileIndex, page) => {
+    if (!lessons) return '';
+    const first = imp.units.findIndex((u) => u.fileIndex === fileIndex);
+    return lessons[first + page] ?? '';
+  };
 
   for (const [i, file] of files.entries()) {
     const step = files.length > 1 ? ` (Datei ${i + 1}/${files.length})` : '';
-    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
     try {
       if (useAI) {
         try {
           // Jede Seite einzeln als Bild an Claude schicken (auch bei großen PDFs zuverlässig)
-          const images = isPdf ? await pdfPagesAsCanvases(file) : [await toCanvas(file, 1800)];
+          const images = isPdf(file) ? await pdfPagesAsCanvases(file) : [await toCanvas(file, 1800)];
           for (const [p, canvas] of images.entries()) {
             const which = images.length > 1 ? `Seite ${p + 1} von ${images.length}` : 'die Vokabeln';
             setMessage(`Claude liest ${which} …${step}`);
-            found.push(...(await extractVocabulary({ imageBase64: canvasToJpegBase64(canvas) }, subject)));
+            const result = await extractVocabulary({ imageBase64: canvasToJpegBase64(canvas) }, subject);
+            found.push(...result.pairs.map((pair) => ({ ...pair, lesson: lessonFor(i, p) })));
+            foundSentences.push(...result.sentences.map((x) => ({ ...x, lesson: lessonFor(i, p) })));
           }
           continue;
         } catch (e) {
@@ -210,39 +383,61 @@ async function processFiles(files, draw) {
         }
       }
       setMessage(`Text wird erkannt …${step}`);
-      const pages = isPdf
+      const pages = isPdf(file)
         ? await recognizePdf(file, languages, (m) => setMessage(m + step))
         : [await recognizeImage(await toCanvas(file), languages, (m) => setMessage(m + step))];
-      for (const page of pages) {
+      pages.forEach((page, p) => {
         imp.rawText += (imp.rawText ? '\n\n' : '') + page.text;
         // Als Tabelle erkannt? Sonst Zeile für Zeile nach Trennzeichen suchen.
-        found.push(...(page.pairs?.length >= 3 ? page.pairs : parse(page.text)).map(fixOcrAccents));
-      }
+        const pairs = page.pairs?.length >= 3 ? page.pairs : parse(page.text);
+        found.push(...pairs.map(fixOcrAccents).map((pair) => ({ ...pair, lesson: lessonFor(i, p) })));
+        foundSentences.push(...(page.sentences ?? []).map(fixSentenceAccents).map((x) => ({ ...x, lesson: lessonFor(i, p) })));
+      });
     } catch (e) {
       imp.notice = e.message;
     }
   }
   await terminateOcr();
-  finish(found, draw);
+  finish(found, draw, foundSentences);
+}
+
+/** Akzent-Lesefehler auch in Beispielsätzen korrigieren (siehe fixOcrAccents). */
+function fixSentenceAccents(sentence) {
+  return {
+    prompt: fixOcrAccents({ term: sentence.prompt, translation: '' }).term,
+    solutions: sentence.solutions.map((t) => fixOcrAccents({ term: '', translation: t }).translation),
+  };
 }
 
 async function processText(text, draw) {
   const subject = targetSubject();
   imp = { ...imp, stage: 'busy', notice: '', rawText: '' };
+  const lesson = cleanLesson(imp.pasteLesson);
   let found = parse(text);
+  let sentences = [];
   if (db.settings.useAI && isConfigured()) {
     imp.message = 'Claude sortiert die Vokabeln …';
     draw();
     try {
-      found = await extractVocabulary({ text }, subject);
+      ({ pairs: found, sentences } = await extractVocabulary({ text }, subject));
     } catch (e) {
       imp.notice = `Claude konnte nicht helfen (${e.message}). Es wurde die einfache Erkennung verwendet.`;
     }
   }
-  finish(found, draw);
+  finish(found.map((pair) => ({ ...pair, lesson })), draw, sentences.map((x) => ({ ...x, lesson })));
 }
 
-function finish(found, draw) {
+function finish(found, draw, sentences = []) {
+  const seenSentences = new Set();
+  imp.sentences = sentences
+    .filter((x) => x.prompt && x.solutions?.length)
+    .filter((x) => {
+      const key = normalize(x.prompt);
+      if (seenSentences.has(key)) return false;
+      seenSentences.add(key);
+      return true;
+    })
+    .map((x) => ({ prompt: x.prompt, solutions: x.solutions, lesson: x.lesson ?? '', include: true }));
   const seen = new Set();
   imp.pairs = found
     .filter((p) => p.term || p.translation)
@@ -254,8 +449,8 @@ function finish(found, draw) {
       seen.add(key);
       return true;
     })
-    .map((p) => ({ term: p.term ?? '', translation: p.translation ?? '', note: p.note ?? '', include: true }));
-  if (!imp.pairs.length) {
+    .map((p) => ({ term: p.term ?? '', translation: p.translation ?? '', note: p.note ?? '', lesson: p.lesson ?? '', include: true }));
+  if (!imp.pairs.length && !imp.sentences.length) {
     imp.notice = `${imp.notice} Es wurden keine Vokabeln erkannt. Du kannst sie mit „＋ Zeile“ auch von Hand eintragen.`.trim();
   }
   imp.stage = 'review';
@@ -268,15 +463,35 @@ function saveImport() {
     const name = imp.newName.trim() || `Import ${new Date().toLocaleDateString('de-DE')}`;
     list = addList(name, imp.newSubject);
   }
-  const existing = new Set(cardsOf([list.id]).map((c) => normalize(c.term)));
+  const existing = new Map(cardsOf([list.id]).map((c) => [normalize(c.term), c]));
   for (const pair of imp.pairs) {
     const term = pair.term.trim();
     const translation = pair.translation.trim();
     if (!pair.include || !term || !translation) continue;
     const key = normalize(term);
-    if (existing.has(key)) continue; // doppelte Vokabeln überspringen
-    existing.add(key);
-    addCard(list.id, term, translation, pair.note);
+    const lesson = cleanLesson(pair.lesson);
+    const known = existing.get(key);
+    if (known) {
+      // Schon vorhanden: nichts doppelt anlegen, aber fehlende Lektion nachtragen (Lernstand bleibt erhalten)
+      if (lesson && !known.lesson) known.lesson = lesson;
+      continue;
+    }
+    existing.set(key, addCard(list.id, term, translation, pair.note, lesson));
+  }
+
+  // Beispielsätze
+  const knownSentences = new Map(sentencesOf([list.id]).map((x) => [normalize(x.prompt), x]));
+  for (const x of imp.sentences) {
+    const prompt = x.prompt.trim();
+    const solutions = x.solutions.map((t) => t.trim()).filter(Boolean);
+    if (!x.include || !prompt || !solutions.length) continue;
+    const lesson = cleanLesson(x.lesson);
+    const known = knownSentences.get(normalize(prompt));
+    if (known) {
+      if (lesson && !known.lesson) known.lesson = lesson;
+      continue;
+    }
+    knownSentences.set(normalize(prompt), addSentence(list.id, prompt, solutions, lesson));
   }
   save();
   return list;

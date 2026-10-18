@@ -1,7 +1,7 @@
 // Vergleicht eine eingetippte Antwort tolerant mit der Lösung.
 // - Groß-/Kleinschreibung, Satzzeichen, Akzente sind egal.
 // - ä/ae, ö/oe, ü/ue, ß/ss werden gleich behandelt.
-// - Artikel (der/die/das, the/a) und „to“ vor englischen Verben sind optional.
+// - Artikel (der/die/das, the/a), Personalpronomen (er/sie/es …) und „to“ vor englischen Verben sind optional.
 // - Klammerinhalte sind optional: „(sich) freuen“ = „freuen“.
 // - Bei mehreren Bedeutungen („Haus, Gebäude“) reicht eine davon. checkMeanings() meldet
 //   zusätzlich, welche Bedeutungen noch fehlen (die werden später nochmal abgefragt).
@@ -15,6 +15,8 @@ const OPTIONAL_PREFIXES = [
   'to ', 'the ', 'a ', 'an ',
   'der ', 'die ', 'das ', 'den ', 'dem ', 'des ', 'ein ', 'eine ', 'einen ', 'sich ',
   'pl ', 'subst ', // Abkürzungen aus Schulbüchern: „Pl. die Eltern“, „Subst. der Grieche“
+  // Personalpronomen: „er (sie, es) ist“ = „ist“ = „sie ist“ = „es ist“
+  'ich ', 'du ', 'er ', 'sie ', 'es ', 'wir ', 'ihr ',
 ];
 
 export function check(input, expected) {
@@ -57,6 +59,41 @@ export function checkMeanings(input, expected) {
     });
   }
   return outcome(matched.size ? ALMOST : WRONG, matched);
+}
+
+/**
+ * Wie ähnlich ist eine Satzübersetzung einer Musterlösung? (0 … 1)
+ * Klammern in der Lösung sind Varianten: „Dort ist (befindet sich) Davus.“ passt zu
+ * „Dort ist Davus“ und „Dort befindet sich Davus“. Die Wortstellung darf abweichen.
+ */
+export function sentenceSimilarity(answer, solution) {
+  const a = sentenceWords(answer);
+  if (!a.length) return 0;
+  let best = 0;
+  for (const variant of sentenceVariants(solution)) {
+    const b = sentenceWords(variant);
+    if (!b.length) continue;
+    if ([...a].sort().join(' ') === [...b].sort().join(' ')) return 1; // gleiche Wörter, andere Reihenfolge
+    const x = a.join(' ');
+    const y = b.join(' ');
+    best = Math.max(best, 1 - levenshtein(x, y) / Math.max(x.length, y.length));
+  }
+  return best;
+}
+
+function sentenceVariants(solution) {
+  return [
+    solution.replace(/\([^)]*\)/g, ' '), // ohne Klammerinhalt
+    solution.replace(/[()]/g, ' '), // mit Klammerinhalt
+    solution.replace(/(\S+)\s*\(([^)]*)\)/g, '$2'), // Klammerinhalt statt des Wortes davor
+  ];
+}
+
+function sentenceWords(text) {
+  let t = text.toLowerCase();
+  for (const [from, to] of [['ä', 'ae'], ['ö', 'oe'], ['ü', 'ue'], ['ß', 'ss']]) t = t.replaceAll(from, to);
+  t = t.normalize('NFD').replace(/\p{M}/gu, '');
+  return t.split(/[^\p{L}\p{N}']+/u).filter(Boolean);
 }
 
 export function alternatives(expected) {

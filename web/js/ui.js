@@ -94,15 +94,25 @@ export function formDialog(title, fieldsHtml, submitLabel = 'Sichern') {
   });
 }
 
-export function resultScreen({ correct, total, missed }) {
-  const ratio = total ? correct / total : 0;
-  const stars = ratio >= 0.9 ? 3 : ratio >= 0.7 ? 2 : ratio >= 0.4 ? 1 : 0;
-  const message = ['Nicht aufgeben – die schweren Wörter kommen bald wieder.', 'Weiter so – Übung macht den Meister!', 'Gut gemacht!', 'Super gemacht!'][stars];
+/**
+ * Auswertung am Ende einer Runde: Daumen hoch/runter für den Lernerfolg.
+ * @param {{correct: number, total: number, missed: string[], thumbs?: {up: number, down: number}, minutes?: number, timeUp?: boolean}} r
+ */
+export function resultScreen({ correct, total, missed, thumbs, minutes, timeUp }) {
+  // Lernerfolg: alle Antworten der Runde zählen (auch Wiederholungen), sonst die ersten Versuche
+  const answered = thumbs ? thumbs.up + thumbs.down : total;
+  const ratio = answered ? (thumbs ? thumbs.up : correct) / answered : 0;
+  const level = ratio >= 0.9 ? 3 : ratio >= 0.7 ? 2 : ratio >= 0.4 ? 1 : 0;
+  const message = ['Nicht aufgeben – die schweren Wörter kommen bald wieder.', 'Weiter so – Übung macht den Meister!', 'Gut gemacht!', 'Super gemacht!'][level];
+  const thumbUp = ratio >= 0.6;
   return `
     <div class="result">
-      <div class="stars" aria-label="${stars} von 3 Sternen">${'★'.repeat(stars)}<span class="dim">${'★'.repeat(3 - stars)}</span></div>
+      ${timeUp ? `<p class="time-up">⏱ Zeit um – ${minutes} Minuten gelernt!</p>` : ''}
+      <div class="big-thumb ${thumbUp ? 'up' : 'down'}" role="img" aria-label="${thumbUp ? 'Daumen hoch' : 'Daumen runter'}">${thumbUp ? '👍' : '👎'}</div>
       <h2>${message}</h2>
       <p class="muted big">${correct} von ${total} beim ersten Versuch richtig</p>
+      ${thumbs ? `<p class="thumb-count"><span>👍 ${thumbs.up}</span><span>👎 ${thumbs.down}</span></p>` : ''}
+      ${!timeUp && minutes ? `<p class="muted">⏱ ${minutes} ${minutes === 1 ? 'Minute' : 'Minuten'} gelernt</p>` : ''}
       ${missed.length ? `
         <div class="card warn">
           <h3>Diese üben wir bald nochmal:</h3>

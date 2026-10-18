@@ -12,18 +12,28 @@
 // 3. Spalten finden: linke Kanten, die in vielen Zeilen vorkommen.
 // 4. Erste Spalte = Fremdwort. Übersetzung = die Spalte, die am häufigsten zusammen mit
 //    einem Fremdwort vorkommt. Spalten dazwischen = Notiz, Spalten rechts davon = Merkhilfen (ignoriert).
-// 5. Zeilen ohne Fremdwort (Beispielsätze, Fortsetzungen) werden übersprungen.
+// 5. Zeilen ohne Fremdwort: Fortsetzung der Bedeutung (wenn die vorige mit Komma endet)
+//    oder Beispielsatz (Fremdsprache) mit Übersetzung(en) darunter (Deutsch).
 // Wortgruppen, die nicht an einer Spaltenkante beginnen, sind meist Störungen
 // (Tabellenlinien, Flaggen, durchscheinende Rückseite) und werden verworfen.
 import { makePair } from './parser.js';
 
 
 /**
- * @param {{text: string, x0: number, x1: number, y0: number, y1: number, confidence?: number}[]} words
- * @param {number} pageWidth
+ * Nur die Vokabelpaare einer Seite.
  * @returns {{term: string, translation: string, note: string}[] | null} null, wenn keine Tabelle erkannt wurde
  */
 export function tableToPairs(words, pageWidth) {
+  return tableToContent(words, pageWidth)?.pairs ?? null;
+}
+
+/**
+ * Vokabelpaare und Beispielsätze einer Seite.
+ * @param {{text: string, x0: number, x1: number, y0: number, y1: number, confidence?: number}[]} words
+ * @param {number} pageWidth
+ * @returns {{pairs: object[], sentences: {prompt: string, solutions: string[]}[]} | null}
+ */
+export function tableToContent(words, pageWidth) {
   const rows = toRows(words);
   if (rows.length < 3) return null;
 
@@ -62,21 +72,125 @@ export function tableToPairs(words, pageWidth) {
   }
 
   const pairs = [];
+  const sentences = [];
+  let lastPair = null; // zuletzt erkannte Vokabel
+  let lastRaw = ''; // ihre Bedeutung, wie sie auf der Seite steht (vor dem Aufräumen)
+  let pending = null; // Beispielsatz im Aufbau
+  let skipNext = false;
+  const flush = () => {
+    const sentence = pending && makeSentence(pending);
+    if (sentence) sentences.push(sentence);
+    pending = null;
+  };
+
   table.forEach(({ cells, center }, r) => {
-    if (!cells[0]) return;
-    let translation = cells[translationCol];
-    let noteCells = cells.slice(1, translationCol);
-    // Schräg fotografiert: Die Übersetzung steht manchmal etwas tiefer in der nächsten Zeile
-    const next = table[r + 1];
-    if (!translation && next && !next.cells[0] && next.center - center < lineHeight * 1.6) {
-      translation = next.cells[translationCol];
-      noteCells = noteCells.map((c, i) => c || next.cells[i + 1]);
+    if (skipNext) {
+      skipNext = false; // schon als (tiefer stehende) Übersetzung verwendet
+      return;
     }
-    if (!translation) return;
-    const pair = makePair(cells[0], translation, noteCells.filter(Boolean).join(' '));
-    if (pair) pairs.push(pair);
+    if (cells[0]) {
+      flush();
+      let translation = cells[translationCol];
+      let noteCells = cells.slice(1, translationCol);
+      // Schräg fotografiert: Die Übersetzung steht manchmal etwas tiefer in der nächsten Zeile
+      const next = table[r + 1];
+      if (!translation && next && !next.cells[0] && next.center - center < lineHeight * 1.6) {
+        translation = next.cells[translationCol];
+        noteCells = noteCells.map((c, i) => c || next.cells[i + 1]);
+        skipNext = Boolean(translation);
+      }
+      lastPair = null;
+      if (!translation) return;
+      const pair = makePair(cells[0], translation, noteCells.filter(Boolean).join(' '));
+      if (pair) {
+        pairs.push(pair);
+        lastPair = pair;
+        lastRaw = translation;
+      }
+      return;
+    }
+
+    const text = cells[translationCol];
+    if (!text || !lastPair) return;
+
+    // Bedeutung geht in der nächsten Zeile weiter: „sich bemühen (um),“ → „streben nach“
+    if (!pending && /,\s*$/.test(lastRaw)) {
+      const more = makePair('x', text);
+      if (more) lastPair.translation = `${lastPair.translation}, ${more.translation}`;
+      const extraNote = cells.slice(1, translationCol).filter(Boolean).join(' ');
+      if (extraNote) lastPair.note = [lastPair.note, extraNote].filter(Boolean).join(' ');
+      lastRaw = text;
+      return;
+    }
+
+    // Beispielsatz: erst die Fremdsprache, darunter die deutsche(n) Übersetzung(en).
+    // Direkt nach einem fremdsprachigen Satz wird eine Übersetzung erwartet (Deutsch, außer die Zeile
+    // ist eindeutig fremdsprachig); sonst beginnt ein neuer Satz (außer die Zeile ist eindeutig Deutsch).
+    // Umgebrochener fremdsprachiger Satz: „… quoque adesse“ / „debes.“ (Übersetzungen beginnen groß)
+    const lastPrompt = pending?.prompt.at(-1);
+    if (pending && !pending.solutions.length && !/[.!?]\s*$/.test(lastPrompt) && /^\p{Ll}/u.test(text)) {
+      pending.prompt.push(text);
+      return;
+    }
+    const score = germanScore(text);
+    // Nach einer Übersetzung reicht ein schwächeres Signal für eine weitere Übersetzung.
+    const threshold = !pending ? 1.5 : pending.solutions.length ? 1 : -1.5;
+    const german = pending && !pending.solutions.length ? score > threshold : score >= threshold;
+    if (!german) {
+      if (pending?.solutions.length) flush();
+      pending ??= { prompt: [], solutions: [] };
+      pending.prompt.push(text);
+    } else if (pending) {
+      const last = pending.solutions.at(-1);
+      if (last && !/[.!?]\s*$/.test(last)) pending.solutions[pending.solutions.length - 1] = `${last} ${text}`;
+      else pending.solutions.push(text);
+    }
   });
-  return pairs;
+  flush();
+  return { pairs, sentences };
+}
+
+function makeSentence({ prompt, solutions }) {
+  const text = prompt.join(' ').replace(/\s+/g, ' ').trim();
+  const sols = solutions.map((t) => t.replace(/\s+/g, ' ').trim()).filter((t) => /\p{L}/u.test(t));
+  if (!sols.length || text.split(' ').length < 2 || !/\p{L}/u.test(text)) return null;
+  return { prompt: text, solutions: sols };
+}
+
+const GERMAN_LINE_WORDS = new Set(
+  ('der die das den dem des ein eine einen einem einer eines und ist sind war waren hat haben nicht kein keine ' +
+    'auch sich auf aus mit nach von vor zu zum zur bei für hinter über unter dort hier da jetzt schon noch immer ' +
+    'sehr aber denn weil dass wenn wie was wer wo warum er sie wir ihr ich du uns euch ihn ihm mein dein sein ' +
+    'seine ihre heute oft viel viele alle wird werden kann können will wollen muss soll')
+    .split(' '),
+);
+const LATIN_LINE_WORDS = new Set(
+  ('et est sunt non ibi iam sed nam cum ad quod quid ubi tum etiam neque atque nec ac ut si nunc tandem semper ' +
+    'quoque autem enim ergo itaque sic tam iterum statim subito diu vos nos tu ego me te se eum eam id ea ' +
+    'post ante per inter sub apud ab ex de pro sine propter contra')
+    .split(' '),
+);
+
+/** Grobe Einschätzung, ob eine Zeile Deutsch ist (sonst: Fremdsprache). */
+export function isGermanLine(text) {
+  return germanScore(text) > 0;
+}
+
+/** > 0: eher Deutsch, < 0: eher Fremdsprache */
+function germanScore(text) {
+  let score = 0;
+  // ä/ö/ü sprechen für Deutsch – aber die Texterkennung liest ā auch mal als ä („Dävus“)
+  if (/[äöüß]/i.test(text)) score += 1;
+  // Lateinische Längenzeichen liest die Texterkennung als à, á, ó …
+  // (aber auch „ó“ statt „ö“ in deutschen Wörtern, daher nicht zu stark gewichten)
+  if (/[àáâãèéêìíîòóôùúûāēīōū]/i.test(text)) score -= 2;
+  for (const raw of text.toLowerCase().split(/[^\p{L}]+/u)) {
+    if (!raw) continue;
+    if (GERMAN_LINE_WORDS.has(raw)) score += 1;
+    if (LATIN_LINE_WORDS.has(raw)) score -= 1;
+    if (/(ibus|orum|arum|que|unt|ant)$/.test(raw) && raw.length > 4) score -= 0.5;
+  }
+  return score;
 }
 
 /** Fasst Wörter zu Zeilen zusammen (Wörter mit ähnlicher Höhe auf der Seite). */

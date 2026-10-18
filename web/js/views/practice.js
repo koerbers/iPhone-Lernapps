@@ -2,9 +2,14 @@
 import { CORRECT, WRONG, checkMeanings } from '../answer.js';
 import { createSession, currentItem, recordAnswer } from '../session.js';
 import { buildSession, dueCount, shuffle } from '../srs.js';
-import { addLog, cardsOf, db, listsOf, save } from '../store.js';
+import { addLog, cardsOf, db, getList, lessonsOf, listsOf, save } from '../store.js';
 import { SUBJECTS, answerOf, dirLabel, promptOf } from '../subjects.js';
 import { closeOverlay, esc, onAction, openOverlay, resultScreen, speakButton, speakEnglish } from '../ui.js';
+import { cardDialog } from './lists.js';
+
+// Timer: mindestens 15 Minuten (vorgelegt), in 5-Minuten-Schritten mehr
+const MIN_TIMER = 15;
+const MAX_TIMER = 120;
 
 const MODES = {
   typing: '⌨️ Eintippen',
@@ -15,17 +20,21 @@ const MODES = {
 // Auswahl pro Fach merken, solange die App offen ist
 const choices = {};
 
+/** Schlüssel für eine Lektion einer Liste */
+const lessonKey = (listId, lesson) => `${listId}␟${lesson ?? ''}`;
+
 export function renderPracticeSetup(root, subjectId) {
   const subject = SUBJECTS[subjectId];
   if (!subject) return (location.hash = '#/lernen');
   const lists = listsOf(subjectId);
-  const c = (choices[subjectId] ??= { listIds: new Set(lists.map((l) => l.id)), dirChoice: 'both' });
+  // lessonOff: abgewählte Lektionen (neue Lektionen sind automatisch ausgewählt)
+  const c = (choices[subjectId] ??= { listIds: new Set(lists.map((l) => l.id)), lessonOff: new Set(), dirChoice: 'both' });
   // neu angelegte Listen automatisch auswählen
   for (const l of lists) if (!c.known?.has(l.id)) c.listIds.add(l.id);
   c.known = new Set(lists.map((l) => l.id));
 
   const dirs = selectedDirs(subjectId, c.dirChoice);
-  const cards = cardsOf([...c.listIds]);
+  const cards = cardsOf([...c.listIds]).filter((card) => !c.lessonOff.has(lessonKey(card.listId, card.lesson)));
   const counts = dueCount(cards, dirs);
 
   root.innerHTML = `
@@ -39,7 +48,8 @@ export function renderPracticeSetup(root, subjectId) {
           <input type="checkbox" data-list="${l.id}" ${c.listIds.has(l.id) ? 'checked' : ''}>
           <span>${esc(l.name)}</span>
           <span class="muted">${cardsOf([l.id]).length}</span>
-        </label>`).join('')}
+        </label>
+        ${c.listIds.has(l.id) ? lessonChips(l.id, c) : ''}`).join('')}
     </section>
 
     <section class="card">
@@ -60,6 +70,20 @@ export function renderPracticeSetup(root, subjectId) {
     </section>
 
     <section class="card">
+      <label class="check-row">
+        <input type="checkbox" name="timerOn" ${db.settings.timerOn ? 'checked' : ''}>
+        <span>⏱ Mit Timer lernen</span>
+      </label>
+      ${db.settings.timerOn ? `
+        <div class="stepper">
+          <button class="icon-btn" data-action="timerMinus" ${db.settings.timerMinutes <= MIN_TIMER ? 'disabled' : ''} aria-label="5 Minuten weniger">−</button>
+          <strong>${db.settings.timerMinutes} Minuten</strong>
+          <button class="icon-btn" data-action="timerPlus" ${db.settings.timerMinutes >= MAX_TIMER ? 'disabled' : ''} aria-label="5 Minuten mehr">＋</button>
+        </div>
+        <p class="hint">Es kommen so lange Vokabeln, bis die Zeit um ist – bei Bedarf auch nochmal welche, die schon dran waren.</p>` : ''}
+    </section>
+
+    <section class="card">
       <div class="badges">
         <div class="badge orange"><strong>${counts.due}</strong><small>fällig</small></div>
         <div class="badge blue"><strong>${counts.new}</strong><small>neu</small></div>
@@ -74,18 +98,64 @@ export function renderPracticeSetup(root, subjectId) {
   root.onchange = (event) => {
     const t = event.target;
     if (t.dataset.list) t.checked ? c.listIds.add(t.dataset.list) : c.listIds.delete(t.dataset.list);
+    if (t.dataset.lesson) t.checked ? c.lessonOff.delete(t.dataset.lesson) : c.lessonOff.add(t.dataset.lesson);
     if (t.name === 'dir') c.dirChoice = t.value;
     if (t.name === 'mode') {
       db.settings.mode = t.value;
+      save();
+    }
+    if (t.name === 'timerOn') {
+      db.settings.timerOn = t.checked;
       save();
     }
     renderPracticeSetup(root, subjectId);
   };
 
   onAction(root, {
+    lessonsAll: (el) => {
+      for (const lesson of lessonsOf(el.dataset.listId)) c.lessonOff.delete(lessonKey(el.dataset.listId, lesson));
+      renderPracticeSetup(root, subjectId);
+    },
+    lessonsNone: (el) => {
+      for (const lesson of lessonsOf(el.dataset.listId)) c.lessonOff.add(lessonKey(el.dataset.listId, lesson));
+      renderPracticeSetup(root, subjectId);
+    },
+    timerMinus: () => {
+      db.settings.timerMinutes = Math.max(MIN_TIMER, db.settings.timerMinutes - 5);
+      save();
+      renderPracticeSetup(root, subjectId);
+    },
+    timerPlus: () => {
+      db.settings.timerMinutes = Math.min(MAX_TIMER, db.settings.timerMinutes + 5);
+      save();
+      renderPracticeSetup(root, subjectId);
+    },
     start: () => start(subjectId, cards, dirs, false),
     free: () => start(subjectId, cards, dirs, true),
   });
+}
+
+/** Lektionen einer Liste zum An- und Abwählen (nur wenn die Liste Lektionen hat). */
+function lessonChips(listId, c) {
+  const lessons = lessonsOf(listId);
+  if (lessons.length === 1 && lessons[0] === '') return '';
+  const listCards = cardsOf([listId]);
+  return `
+    <div class="lessons">
+      ${lessons.map((lesson) => {
+        const key = lessonKey(listId, lesson);
+        const count = listCards.filter((card) => (card.lesson ?? '') === lesson).length;
+        return `
+          <label class="chip">
+            <input type="checkbox" data-lesson="${esc(key)}" ${c.lessonOff.has(key) ? '' : 'checked'}>
+            <span>${esc(lesson || 'ohne Lektion')} <small>${count}</small></span>
+          </label>`;
+      }).join('')}
+      <span class="lesson-tools">
+        <button class="link small" data-action="lessonsAll" data-list-id="${listId}">alle</button> ·
+        <button class="link small" data-action="lessonsNone" data-list-id="${listId}">keine</button>
+      </span>
+    </div>`;
 }
 
 function selectedDirs(subjectId, dirChoice) {
@@ -113,6 +183,11 @@ function start(subjectId, cards, dirs, fillWithWeak) {
     session: createSession(subjectId, candidates),
     mode: db.settings.mode,
     distractors,
+    cards,
+    dirs,
+    startedAt: Date.now(),
+    endsAt: db.settings.timerOn ? Date.now() + db.settings.timerMinutes * 60_000 : null,
+    thumbs: { up: 0, down: 0 },
   });
 }
 
@@ -123,13 +198,16 @@ function runSession(ctx) {
   ctx.ui = {};
   prepare(ctx);
   draw(root, ctx);
+  if (ctx.endsAt) ctx.ticker = setInterval(() => updateTimer(root, ctx), 1000);
+  const stop = () => {
+    clearInterval(ctx.ticker);
+    save();
+    closeOverlay();
+  };
 
   onAction(root, {
-    quit: () => {
-      save();
-      closeOverlay();
-    },
-    close: () => closeOverlay(),
+    quit: stop,
+    close: stop,
     speak: (el) => speakEnglish(el.dataset.text),
     dontKnow: () => {
       ctx.ui.result = WRONG;
@@ -162,6 +240,12 @@ function runSession(ctx) {
       ctx.ui.result = ctx.ui.choices[ctx.ui.picked] === answerOf(item.card, item.dir) ? CORRECT : WRONG;
       draw(root, ctx);
     },
+    editCard: async () => {
+      // Lesefehler (z. B. „jam“ statt „iam“) direkt beim Üben korrigieren
+      const item = currentItem(ctx.session);
+      const list = getList(item.card.listId);
+      if (list && (await cardDialog(list, item.card))) draw(root, ctx);
+    },
     reveal: () => {
       ctx.ui.revealed = true;
       draw(root, ctx);
@@ -180,11 +264,59 @@ function runSession(ctx) {
 }
 
 function next(root, ctx, correct, details = {}) {
+  ctx.thumbs[correct ? 'up' : 'down'] += 1;
   addLog(recordAnswer(ctx.session, correct, Date.now(), details));
   save();
+  if (ctx.endsAt) {
+    if (Date.now() >= ctx.endsAt) {
+      // Zeit um: nach dieser Vokabel ist Schluss
+      ctx.timeUp = true;
+      ctx.session.queue.splice(ctx.session.index);
+      clearInterval(ctx.ticker);
+    } else if (!currentItem(ctx.session)) {
+      refill(ctx);
+    }
+  }
   prepare(ctx);
   draw(root, ctx);
   root.querySelector('#answer')?.focus();
+}
+
+/** Mit Timer: Gehen die Vokabeln aus, bevor die Zeit um ist, kommen weitere dazu. */
+function refill(ctx) {
+  const { session } = ctx;
+  const seen = new Set(session.queue.map((item) => item.card));
+  const recent = new Set(session.queue.slice(-5).map((item) => item.card));
+  let more = buildSession(ctx.cards, ctx.dirs, { size: db.settings.sessionSize, maxNew: db.settings.maxNew, fillWithWeak: true });
+  // Gerade erst abgefragte Vokabeln nicht sofort wieder (außer es gibt nicht genug andere)
+  if (more.filter((c) => !recent.has(c.card)).length >= 3) more = more.filter((c) => !recent.has(c.card));
+  // Schon in dieser Runde abgefragt → nur Übung, verändert die Lernkartei nicht nochmal
+  session.queue.push(...more.map((c) => ({ card: c.card, dir: c.dir, attempt: seen.has(c.card) ? 1 : 0 })));
+}
+
+function remainingText(ctx) {
+  const ms = Math.max(0, ctx.endsAt - Date.now());
+  const s = Math.ceil(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Aktualisiert nur die Timer-Anzeige (kein Neuzeichnen, damit Eingaben erhalten bleiben). */
+function updateTimer(root, ctx) {
+  const el = root.querySelector('#timer');
+  const bar = root.querySelector('.session-bar .progress > div');
+  if (!el) return;
+  if (Date.now() >= ctx.endsAt) {
+    el.textContent = '⏱ Zeit um!';
+    el.classList.add('done');
+    root.querySelector('#time-up-hint')?.removeAttribute('hidden');
+  } else {
+    el.textContent = `⏱ ${remainingText(ctx)}`;
+  }
+  if (bar) bar.style.width = `${timerProgress(ctx)}%`;
+}
+
+function timerProgress(ctx) {
+  return Math.min(100, Math.round(((Date.now() - ctx.startedAt) / (ctx.endsAt - ctx.startedAt)) * 100));
 }
 
 function prepare(ctx) {
@@ -201,10 +333,14 @@ function draw(root, ctx) {
   const { session } = ctx;
   const item = currentItem(session);
   if (!item) {
+    clearInterval(ctx.ticker);
     root.innerHTML = `<div class="session">${resultScreen({
       correct: session.firstTryCorrect,
       total: session.firstTryTotal,
       missed: session.missed.map((c) => `${c.term} – ${c.translation}`),
+      thumbs: ctx.thumbs,
+      timeUp: ctx.timeUp,
+      minutes: ctx.timeUp ? db.settings.timerMinutes : Math.max(1, Math.round((Date.now() - ctx.startedAt) / 60_000)),
     })}</div>`;
     return;
   }
@@ -212,15 +348,19 @@ function draw(root, ctx) {
   const english = session.subject === 'english';
   const prompt = promptOf(item.card, item.dir);
   const answer = answerOf(item.card, item.dir);
-  const progress = Math.round((session.index / session.queue.length) * 100);
+  const progress = ctx.endsAt ? timerProgress(ctx) : Math.round((session.index / session.queue.length) * 100);
+  const timeIsUp = ctx.endsAt && Date.now() >= ctx.endsAt;
 
   root.innerHTML = `
     <div class="session">
       <header class="session-bar">
         <button class="link" data-action="quit">Beenden</button>
         <div class="progress" role="progressbar" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100"><div style="width:${progress}%"></div></div>
-        <span class="muted">${session.queue.length - session.index}</span>
+        ${ctx.endsAt
+          ? `<span id="timer" class="timer ${timeIsUp ? 'done' : ''}">${timeIsUp ? '⏱ Zeit um!' : `⏱ ${remainingText(ctx)}`}</span>`
+          : `<span class="muted">${session.queue.length - session.index}</span>`}
       </header>
+      ${ctx.endsAt ? `<p id="time-up-hint" class="again" ${timeIsUp ? '' : 'hidden'}>Zeit um – das ist die letzte Vokabel!</p>` : ''}
       <p class="muted center">${dirLabel(session.subject, item.dir)}</p>
       ${item.moreOf ? '<p class="again">↻ Noch eine Bedeutung!</p>' : item.attempt > 0 ? '<p class="again">↻ Noch einmal!</p>' : ''}
       <div class="prompt-card">
@@ -257,10 +397,11 @@ function modeArea(ctx, item, answer, english) {
     return `
       <div class="revealed">${esc(answer)} ${speakAnswer}</div>
       ${grammar(item, ctx.session.subject)}
+      <p class="center"><button class="link small" data-action="editCard">✏️ Vokabel korrigieren</button></p>
       <p class="muted center">Wusstest du es?</p>
       <div class="row">
-        <button class="btn large bad" data-action="didntKnow">✗ Nein</button>
-        <button class="btn large good" data-action="knew">✓ Ja</button>
+        <button class="btn large bad" data-action="didntKnow">👎 Nein</button>
+        <button class="btn large good" data-action="knew">👍 Ja</button>
       </div>`;
   }
 
@@ -285,9 +426,9 @@ function modeArea(ctx, item, answer, english) {
 function feedback(ctx, item, answer, speakAnswer) {
   const { result, missing = [], repeated } = ctx.ui;
   const title = {
-    correct: '<h2 class="good-text">Richtig! 🎉</h2>',
-    almost: '<h2 class="good-text">Fast richtig – kleiner Tippfehler 👍</h2>',
-    wrong: '<h2 class="bad-text">Leider falsch</h2>',
+    correct: '<div class="thumb">👍</div><h2 class="good-text">Richtig!</h2>',
+    almost: '<div class="thumb">👍</div><h2 class="good-text">Fast richtig – kleiner Tippfehler</h2>',
+    wrong: '<div class="thumb">👎</div><h2 class="bad-text">Leider falsch</h2>',
   }[result];
 
   let solution = '';
@@ -309,6 +450,7 @@ function feedback(ctx, item, answer, speakAnswer) {
       ${solution}
       ${grammar(item, ctx.session.subject)}
       ${speakAnswer}
+      <p><button class="link small" data-action="editCard">✏️ Vokabel korrigieren</button></p>
     </div>`;
 }
 

@@ -12,10 +12,12 @@ const DEFAULT_SETTINGS = {
   mode: 'typing',
   useAI: true,
   claudeKey: '',
+  timerOn: true,
+  timerMinutes: 15,
 };
 
 function emptyState() {
-  return { lists: [], cards: [], logs: [], settings: { ...DEFAULT_SETTINGS } };
+  return { lists: [], cards: [], sentences: [], logs: [], settings: { ...DEFAULT_SETTINGS } };
 }
 
 function load() {
@@ -64,6 +66,7 @@ export function addList(name, subject) {
 export function deleteList(id) {
   db.lists = db.lists.filter((l) => l.id !== id);
   db.cards = db.cards.filter((c) => c.listId !== id);
+  db.sentences = db.sentences.filter((s) => s.listId !== id);
   save();
 }
 
@@ -78,8 +81,8 @@ export function cardsOfSubject(subject) {
   return cardsOf(listsOf(subject).map((l) => l.id));
 }
 
-export function addCard(listId, term, translation, note = '') {
-  const card = { id: uid(), listId, term, translation, note, createdAt: Date.now() + db.cards.length };
+export function addCard(listId, term, translation, note = '', lesson = '') {
+  const card = { id: uid(), listId, term, translation, note, lesson, createdAt: Date.now() + db.cards.length };
   db.cards.push(card);
   return card;
 }
@@ -95,6 +98,46 @@ export function resetProgress(cards) {
     card.rev = newState();
   }
   save();
+}
+
+// ---------- Beispielsätze (z. B. aus dem Schulbuch) ----------
+
+export function sentencesOf(listIds) {
+  const ids = new Set(listIds);
+  return db.sentences.filter((s) => ids.has(s.listId));
+}
+
+/** @param {string[]} solutions eine oder mehrere richtige Übersetzungen */
+export function addSentence(listId, prompt, solutions, lesson = '') {
+  const sentence = { id: uid(), listId, prompt, solutions, lesson, correct: 0, wrong: 0, createdAt: Date.now() + db.sentences.length };
+  db.sentences.push(sentence);
+  return sentence;
+}
+
+export function deleteSentence(id) {
+  db.sentences = db.sentences.filter((s) => s.id !== id);
+  save();
+}
+
+// ---------- Lektionen ----------
+
+/** Einheitliche Schreibweise: „3“ → „Lektion 3“ */
+export function cleanLesson(text) {
+  const t = String(text ?? '').trim();
+  return /^\d+$/.test(t) ? `Lektion ${t}` : t;
+}
+
+/** Sortiert Lektionen natürlich („Lektion 2“ vor „Lektion 10“), Vokabeln ohne Lektion zuletzt. */
+export function sortLessons(lessons) {
+  return [...lessons].sort((a, b) => {
+    if (!a || !b) return a ? -1 : b ? 1 : 0;
+    return a.localeCompare(b, 'de', { numeric: true });
+  });
+}
+
+/** Alle Lektionen einer Liste ('' = Vokabeln ohne Lektion). */
+export function lessonsOf(listId) {
+  return sortLessons(new Set([...cardsOf([listId]), ...sentencesOf([listId])].map((c) => c.lesson ?? '')));
 }
 
 // ---------- Protokoll ----------

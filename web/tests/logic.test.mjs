@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
-import { ALMOST, CORRECT, WRONG, check, checkMeanings, levenshtein } from '../js/answer.js';
+import { ALMOST, CORRECT, WRONG, check, checkMeanings, levenshtein, sentenceSimilarity } from '../js/answer.js';
 import { fixOcrAccents, parse } from '../js/parser.js';
-import { tableToPairs } from '../js/layout.js';
+import { isGermanLine, tableToContent, tableToPairs } from '../js/layout.js';
 import { createSession, currentItem, recordAnswer } from '../js/session.js';
 import { MAX_BOX, buildSession, isDue, newState, priority, review, startOfDay, addDays } from '../js/srs.js';
 import { streak } from '../js/stats.js';
@@ -46,6 +46,16 @@ describe('Antwortprüfung', () => {
     assert.deepEqual(checkMeanings('Herrin, Dame', 'die Herrin, die Dame').missing, []);
     assert.deepEqual(checkMeanings('warten', 'warten (auf), erwarten').missing, ['erwarten']);
     assert.equal(check('Eltern', 'der Vater, die Mutter; Pl. die Eltern'), CORRECT);
+  });
+  test('Personalpronomen sind optional: „er (sie, es) ist“', () => {
+    for (const answer of ['er ist', 'sie ist', 'es ist', 'ist', 'er/sie/es ist']) {
+      assert.equal(check(answer, 'er (sie, es) ist, befindet sich'), CORRECT, answer);
+    }
+    assert.deepEqual(checkMeanings('sie ist, befindet sich', 'er (sie, es) ist, befindet sich').missing, []);
+    assert.equal(check('sind', 'sie sind, befinden sich'), CORRECT);
+    assert.equal(check('ist da', 'er (sie, es) ist da'), CORRECT);
+    assert.equal(check('ihr', 'ihr'), CORRECT); // „vos – ihr“ bleibt abfragbar
+    assert.equal(check('wir', 'ihr'), WRONG);
   });
   test('Satzzeichen und Groß/klein egal: „Schau! Schaut!“', () => {
     for (const answer of ['schau, schaut', 'Schau! Schaut!', 'schau schaut', 'SCHAU; schaut', 'schaut!']) {
@@ -160,6 +170,68 @@ describe('Vokabeltabelle (Schulbuchseite)', () => {
   });
 });
 
+describe('Beispielsätze aus dem Buch', () => {
+  let y = 0;
+  const words = [];
+  const row = (...cells) => {
+    y += 60;
+    for (const [x, text] of cells) {
+      let cx = x;
+      for (const part of text.split(' ')) {
+        words.push({ text: part, x0: cx, x1: cx + part.length * 18, y0: y, y1: y + 30 });
+        cx += part.length * 18 + 12;
+      }
+    }
+  };
+  row([60, 'est'], [450, '3. Pers. Sg.'], [920, 'er ist']);
+  row([920, 'Ibi Dàvus est.']);
+  row([920, 'Dort ist Davus.']);
+  row([60, 'studere'], [450, 'studeo'], [920, 'sich bemühen (um),']);
+  row([450, 'm. Dat.'], [920, 'streben nach']);
+  row([920, 'Libertati studeo.']);
+  row([920, 'Ich bemühe mich um die Freiheit.']);
+  row([920, 'Ich strebe nach Freiheit.']);
+  row([60, 'adesse'], [920, 'helfen']);
+  row([920, 'Tibi adsum; tu quidem mihi quoque adesse']);
+  row([920, 'debes.']);
+  row([920, 'Ich helfe dir; du musst auch mir helfen.']);
+  row([60, 'videre'], [450, 'video'], [920, 'sehen']);
+  row([60, 'equus'], [450, 'm'], [920, 'das Pferd']);
+  const content = tableToContent(words, 2200);
+
+  test('Sätze mit einer oder mehreren Übersetzungen', () => {
+    assert.deepEqual(content.sentences, [
+      { prompt: 'Ibi Dàvus est.', solutions: ['Dort ist Davus.'] },
+      { prompt: 'Libertati studeo.', solutions: ['Ich bemühe mich um die Freiheit.', 'Ich strebe nach Freiheit.'] },
+      { prompt: 'Tibi adsum; tu quidem mihi quoque adesse debes.', solutions: ['Ich helfe dir; du musst auch mir helfen.'] },
+    ]);
+  });
+
+  test('Bedeutung geht in der nächsten Zeile weiter', () => {
+    const studere = content.pairs.find((p) => p.term === 'studere');
+    assert.equal(studere.translation, 'sich bemühen (um), streben nach');
+    assert.equal(studere.note, 'studeo m. Dat.');
+    assert.deepEqual(content.pairs.map((p) => p.term), ['est', 'studere', 'adesse', 'videre', 'equus']);
+  });
+
+  test('Deutsch oder Fremdsprache?', () => {
+    for (const t of ['Dort ist (befindet sich) Davus.', 'Scorpus steht vor Incitatus.', 'Das Volk hórt nicht auf zu schreien.', 'Verschont uns!']) {
+      assert.ok(isGermanLine(t), t);
+    }
+    for (const t of ['Ibi Dávus est.', 'Scorpus ante Incitatum stat.', 'Libertati studeo.', 'Parcite nobis!', 'Nam Davus non adest.']) {
+      assert.ok(!isGermanLine(t), t);
+    }
+  });
+
+  test('Satzvergleich: Klammern als Varianten, Wortstellung und kleine Fehler egal', () => {
+    assert.equal(sentenceSimilarity('Dort ist Davus', 'Dort ist (befindet sich) Davus.'), 1);
+    assert.equal(sentenceSimilarity('dort befindet sich davus', 'Dort ist (befindet sich) Davus.'), 1);
+    assert.equal(sentenceSimilarity('Davus ist dort', 'Dort ist (befindet sich) Davus.'), 1);
+    assert.ok(sentenceSimilarity('Das Volk hoert nicht auf zu schrein', 'Das Volk hört nicht auf zu schreien.') >= 0.9);
+    assert.ok(sentenceSimilarity('Das Volk schreit', 'Das Volk hört nicht auf zu schreien.') < 0.9);
+  });
+});
+
 describe('Lernkartei', () => {
   const now = new Date(2026, 9, 17, 15, 0).getTime();
 
@@ -195,9 +267,23 @@ describe('Lernkartei', () => {
       { id: 'd', createdAt: 4 },
     ];
     const round = buildSession(cards, ['fwd'], { size: 10, maxNew: 1, now });
-    assert.deepEqual(round.map((c) => c.card.id).sort(), ['a', 'c']);
+    const ids = round.map((c) => c.card.id).sort();
+    assert.equal(ids.length, 2);
+    assert.equal(ids[0], 'a'); // die fällige Karte ist immer dabei
+    assert.ok(['c', 'd'].includes(ids[1])); // dazu eine zufällige neue
     const free = buildSession(cards, ['fwd'], { size: 10, maxNew: 1, fillWithWeak: true, now });
     assert.equal(free.length, 4);
+  });
+});
+
+describe('Zufall', () => {
+  test('neue Vokabeln kommen aus dem ganzen Vorrat, nicht nur vom Anfang', () => {
+    const cards = Array.from({ length: 300 }, (_, i) => ({ id: `k${i}`, createdAt: i }));
+    const seen = new Set();
+    for (let r = 0; r < 20; r++) {
+      for (const c of buildSession(cards, ['fwd'], { size: 10, maxNew: 10 })) seen.add(Number(c.card.id.slice(1)));
+    }
+    assert.ok(Math.max(...seen) > 150, 'auch Vokabeln aus der zweiten Hälfte');
   });
 });
 
