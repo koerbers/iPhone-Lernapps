@@ -1,26 +1,38 @@
 // Startseite „Lernen“: Überblick pro Fach.
 import { MASTERED_BOX, dueCount, weakestBox } from '../srs.js';
 import { logsToday, streak } from '../stats.js';
-import { cardsOfSubject, db, insertSampleData, listsOf } from '../store.js';
+import { activeProfile, avatarHtml, cardsOfSubject, currentLevel, db, insertSampleData, listsOf, profiles } from '../store.js';
 import { SUBJECTS, SUBJECT_IDS } from '../subjects.js';
 import { esc, onAction } from '../ui.js';
 
 export function renderHome(root) {
-  const name = db.settings.name;
+  const profile = activeProfile();
+  const name = profile.name;
   const today = logsToday(db.logs);
   const todayText = today.length
     ? `Heute schon ${today.length} Abfragen, ${today.filter((l) => l.correct).length} richtig 💪`
     : 'Heute noch nichts geübt – los geht’s!';
 
   root.innerHTML = `
-    <h1>Lernen</h1>
+    <div class="row between">
+      <h1>Lernen</h1>
+      <a class="profile-chip" href="#/kinder" aria-label="Kind wechseln">
+        ${avatarHtml(profile)}
+        <span>${esc(name)}${profiles.list.length > 1 ? ' ⇄' : ''}</span>
+      </a>
+    </div>
     <section class="card hello">
       <div>
-        <h2>${name ? `Hallo ${esc(name)}!` : 'Hallo!'}</h2>
+        <h2>Hallo ${esc(name)}!</h2>
         <p class="muted">${todayText}</p>
       </div>
       <div class="streak"><span>🔥</span><strong>${streak(db.logs)}</strong><small>Tage</small></div>
     </section>
+    ${profile.age ? '' : `
+      <section class="card info">
+        Wie alt ist ${esc(name)}? Dann passt die App die Schwierigkeit an
+        (jetzt: <strong>${currentLevel().label}</strong>). → <a href="#/einstellungen">Profil einrichten</a>
+      </section>`}
     ${db.lists.length ? SUBJECT_IDS.map(subjectCard).join('') : emptyState()}
   `;
 

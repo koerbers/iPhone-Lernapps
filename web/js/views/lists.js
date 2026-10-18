@@ -2,7 +2,7 @@
 import { MASTERED_BOX, stateOf, weakestBox } from '../srs.js';
 import {
   addCard, addList, addSentence, cardsOf, cleanLesson, db, deleteCard, deleteList, deleteSentence, getList, lessonsOf,
-  listsOf, resetProgress, save, sentencesOf,
+  activeProfile, copyListToProfile, listsOf, profiles, resetProgress, save, sentencesOf,
 } from '../store.js';
 import { SUBJECTS, SUBJECT_IDS, dirLabel } from '../subjects.js';
 import { boxIndicator, esc, formDialog, onAction } from '../ui.js';
@@ -107,6 +107,7 @@ export function renderListDetail(root, listId) {
       <a class="btn" href="#/import/${listId}">📷 Importieren</a>
       <button class="btn" data-action="addSentence">＋ Satz</button>
       <button class="btn" data-action="rename">✏️ Umbenennen</button>
+      ${profiles.list.length > 1 ? '<button class="btn" data-action="copyToChild">📋 Für anderes Kind</button>' : ''}
     </div>
     <input class="search" type="search" placeholder="Vokabel suchen">
     ${body}
@@ -141,6 +142,18 @@ export function renderListDetail(root, listId) {
   onAction(root, {
     add: async () => {
       if (await cardDialog(list)) renderListDetail(root, listId);
+    },
+    copyToChild: async () => {
+      const others = profiles.list.filter((p) => p.id !== activeProfile().id);
+      const values = await formDialog('Liste kopieren', `
+        <p>„${esc(list.name)}“ mit allen Vokabeln und Sätzen kopieren für:</p>
+        <label class="field">Kind
+          <select name="profile">${others.map((p) => `<option value="${p.id}">${p.avatar} ${esc(p.name)}</option>`).join('')}</select>
+        </label>
+        <p class="hint">Das andere Kind startet mit eigenem Lernstand – alle Vokabeln gelten dort als neu.</p>`, 'Kopieren');
+      if (!values) return;
+      copyListToProfile(list.id, values.profile);
+      alert(`Kopiert ✅ – „${list.name}“ ist jetzt auch bei ${others.find((p) => p.id === values.profile).name}.`);
     },
     addSentence: async () => {
       if (await sentenceDialog(list)) renderListDetail(root, listId);

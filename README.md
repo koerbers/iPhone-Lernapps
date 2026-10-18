@@ -12,6 +12,20 @@ Die App gibt es in zwei Varianten, beide brauchen **keinen Mac**:
 
 ## Was die App kann
 
+- **Mehrere Kinder:** Jedes Kind hat ein Profil (Name, Alter, Bild) mit eigenen Listen, eigenem Lernstand, eigener Statistik und eigenen Einstellungen. Gewechselt wird oben auf der Startseite über das Bild. Listen lassen sich für ein anderes Kind kopieren; der Claude-Schlüssel gilt für alle.
+- **Avatare:** Tier- und Weltall-Bilder (🚀 🛸 👽 🤖 🧑‍🚀 🪐 …) oder ein eigenes Foto/Bild vom Gerät (z. B. die Lieblingsfigur). Eigene Bilder werden quadratisch verkleinert und bleiben nur auf dem Gerät (und in der Sicherungsdatei).
+- **Schwierigkeit nach Alter** (automatisch, in den Einstellungen änderbar):
+
+  | | Leicht (bis 10) | Mittel (11–12) | Schwer (ab 13) |
+  |---|---|---|---|
+  | Tippfehler | großzügig | normal | streng |
+  | Hilfe | 💡 Tipp-Knopf (erste Buchstaben) | – | – |
+  | Auswählen | zufällige falsche Antworten | zufällige | ähnlich aussehende |
+  | Englisch startet mit | Englisch → Deutsch | beiden Richtungen | beiden Richtungen |
+  | Runde | 10 Abfragen, 5 neue | 20, 10 neue | 25, 15 neue |
+  | KI-Sätze | 4–8 Wörter, Präsens | 5–12 Wörter, einfache Nebensätze | 8–16 Wörter, verschiedene Zeitformen |
+  | Bewertung von Sätzen | sehr großzügig | fair | genau |
+
 - **Lernkartei (Leitner-System):** Jede Vokabel liegt in einem von 6 Fächern.
   Richtig → ein Fach weiter, längere Pause (1, 2, 4, 8, 16, 32 Tage).
   Falsch → zurück in Fach 1 und **sofort wieder fällig**. In derselben Runde kommt sie nach 3 anderen Karten noch einmal dran.

@@ -4,6 +4,7 @@ import { renderImport } from './views/import.js';
 import { renderListDetail, renderLists } from './views/lists.js';
 import { renderPracticeSetup } from './views/practice.js';
 import { renderSentenceSetup } from './views/sentences.js';
+import { renderProfiles } from './views/profiles.js';
 import { renderSettings } from './views/settings.js';
 import { renderStats } from './views/stats.js';
 
@@ -15,6 +16,7 @@ const routes = [
   { pattern: /^#\/import(?:\/([\w.-]+))?$/, tab: 'listen', render: renderImport },
   { pattern: /^#\/erfolge$/, tab: 'erfolge', render: renderStats },
   { pattern: /^#\/einstellungen$/, tab: 'einstellungen', render: renderSettings },
+  { pattern: /^#\/kinder$/, tab: 'lernen', render: renderProfiles },
   { pattern: /^.*$/, tab: 'lernen', render: renderHome },
 ];
 

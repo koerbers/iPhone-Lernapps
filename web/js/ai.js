@@ -1,14 +1,14 @@
 // Anbindung an Claude über die Anthropic-API (https://platform.claude.com).
 // Der API-Schlüssel wird in den Einstellungen eingetragen und nur auf diesem Gerät gespeichert.
 // Claude kann Fotos und PDFs direkt lesen, bildet Übungssätze und bewertet Übersetzungen.
-import { db } from './store.js';
+import { activeProfile, currentLevel, getClaudeKey } from './store.js';
 import { SUBJECTS, sourceLang, targetLang } from './subjects.js';
 
 const ENDPOINT = 'https://api.anthropic.com/v1/messages';
 const MODEL = 'claude-opus-5-5';
 
 export function isConfigured() {
-  return Boolean(db.settings.claudeKey);
+  return Boolean(getClaudeKey());
 }
 
 // ---------- Anweisungen (Prompts) ----------
@@ -36,14 +36,23 @@ Extrahiere alle Vokabeln dieser Seite:
   return text;
 }
 
+/** Wer lernt? Alter und Stufe des aktiven Kindes für die Anweisungen an die KI. */
+function learner() {
+  const age = activeProfile()?.age;
+  return age ? `Das Kind ist ${age} Jahre alt.` : 'Das Kind ist etwa 10 bis 13 Jahre alt.';
+}
+
 function sentenceInstructions(subject, dir) {
   const source = sourceLang(subject, dir);
   const target = targetLang(subject, dir);
-  let text = `Du bist eine freundliche Lehrkraft für ${SUBJECTS[subject].name} an einem deutschen Gymnasium (Klasse 5 bis 8).
-Du erstellst kurze Übersetzungsübungen: Sätze auf ${source}, die das Kind ins ${target}e übersetzt.
+  const level = currentLevel();
+  let text = `Du bist eine freundliche Lehrkraft für ${SUBJECTS[subject].name} an einem deutschen Gymnasium.
+${learner()} Schwierigkeitsstufe: ${level.label}.
+Du erstellst Übersetzungsübungen: Sätze auf ${source}, die das Kind ins ${target}e übersetzt.
 - Jeder Satz verwendet mindestens eine der vorgegebenen Vokabeln.
-- Sonst nur sehr einfache Grundwörter und Grammatik, die zu den Vokabeln passt.
-- Sätze kurz (5 bis 12 Wörter), kindgerecht, abwechslungsreich und gern ein bisschen lustig.
+- Sonst nur Grundwörter und Grammatik, die zum Alter und zu den Vokabeln passen.
+- Satzbau: ${level.sentenceStyle}.
+- Altersgerecht, abwechslungsreich und gern ein bisschen lustig.
 - "prompt" ist der Satz auf ${source}, "solution" eine gute Musterübersetzung auf ${target}.`;
   if (subject === 'latin') {
     text += `
@@ -54,9 +63,10 @@ Du erstellst kurze Übersetzungsübungen: Sätze auf ${source}, die das Kind ins
 
 function gradingInstructions(subject, dir) {
   return `Du bist eine geduldige, ermutigende Lehrkraft für ${SUBJECTS[subject].name}.
-Ein Kind hat einen Satz von ${sourceLang(subject, dir)} ins ${targetLang(subject, dir)}e übersetzt.
+Ein Kind hat einen Satz von ${sourceLang(subject, dir)} ins ${targetLang(subject, dir)}e übersetzt. ${learner()}
+- Strenge (Stufe ${currentLevel().label}): ${currentLevel().grading}
 - "correct" ist true, wenn die Übersetzung inhaltlich und grammatisch im Wesentlichen stimmt. Freie, aber sinngemäß richtige Übersetzungen und Synonyme sind richtig. Kleine Rechtschreibfehler machen die Antwort nicht falsch, werden aber erwähnt.
-- "feedback": 1 bis 3 kurze Sätze auf Deutsch, direkt an das Kind gerichtet (du). Erst loben, was gut war, dann konkret erklären, was falsch war (z. B. Vokabel, Zeitform, Fall).
+- "feedback": 1 bis 3 kurze Sätze auf Deutsch, direkt an das Kind gerichtet (du), in altersgerechter Sprache. Erst loben, was gut war, dann konkret erklären, was falsch war (z. B. Vokabel, Zeitform, Fall).
 - "correctedTranslation": die Übersetzung des Kindes, möglichst wenig verändert und richtiggestellt.`;
 }
 
@@ -140,7 +150,7 @@ async function send({ system, content, schema, effort }) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'x-api-key': db.settings.claudeKey,
+      'x-api-key': getClaudeKey(),
       'anthropic-version': '2023-06-01',
       // Lehnt das Modell eine Anfrage ab, versucht die API es automatisch mit einem anderen Modell.
       'anthropic-beta': 'server-side-fallback-2026-07-01',
