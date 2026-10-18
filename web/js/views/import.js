@@ -2,9 +2,10 @@
 // Ablauf: Quelle wählen → (Frage: Seiten Lektionen zuordnen?) → Erkennen → Prüfen → Speichern
 import { extractVocabulary, isConfigured } from '../ai.js';
 import { normalize } from '../answer.js';
-import { fixOcrAccents, parse } from '../parser.js';
+import { fixOcrAccents, parse, parseText } from '../parser.js';
 import {
-  canvasToJpegBase64, pdfPagesAsCanvases, pdfThumbnails, recognizeImage, recognizePdf, terminateOcr, toCanvas,
+  READABLE_QUALITY, canvasToJpegBase64, pdfPagesAsCanvases, pdfThumbnails, recognizeImage, recognizePdf, terminateOcr,
+  toCanvas,
 } from '../ocr.js';
 import {
   addCard, addList, addSentence, cardsOf, cleanLesson, db, getList, lessonsOf, save, sentencesOf,
@@ -20,6 +21,9 @@ function freshState(listId = '') {
     stage: 'pick', // pick | ask | assign | busy | review
     listId, newName: '', newSubject: 'english', message: '', pairs: [], notice: '', rawText: '', pasted: '', pasteLesson: '',
     sentences: [], // Beispielsätze: { prompt, solutions[], lesson, include }
+    pageImages: [], // Seitenbilder (zum Nachsehen beim Prüfen)
+    unreadable: 0, // Seiten, die die Texterkennung nicht lesen konnte (meist Handschrift)
+    lessons: null, // gewählte Lektionen pro Seite (für „Mit Claude lesen“)
     files: [],
     units: [], // eine Einheit pro PDF-Seite bzw. Foto: { fileIndex, label, thumb, lesson, explicit }
   };
@@ -45,7 +49,10 @@ export function renderImport(root, listId) {
       save();
     }
     if (t.name === 'files' && t.files.length) {
-      await prepareFiles([...t.files], draw);
+      const files = [...t.files];
+      // Textdateien (z. B. mit „house – Haus“ pro Zeile) direkt übernehmen
+      if (files.every(isTextFile)) await processText((await Promise.all(files.map((f) => f.text()))).join('\n'), draw);
+      else await prepareFiles(files.filter((f) => !isTextFile(f)), draw);
     }
     if (t.dataset.unit) setUnitLesson(root, Number(t.dataset.unit), t.value);
   };
@@ -69,6 +76,7 @@ export function renderImport(root, listId) {
     },
     lessonsNo: () => processFiles(imp.files, null, draw),
     startImport: () => processFiles(imp.files, imp.units.map((u) => u.lesson), draw),
+    retryWithClaude: () => processFiles(imp.files, imp.lessons, draw, { forceAI: true }),
     paste: async () => {
       if (!imp.pasted.trim()) return;
       await processText(imp.pasted, draw);
@@ -149,14 +157,24 @@ function pickView() {
       <h3>Foto oder PDF</h3>
       <label class="btn primary large file-btn">
         📷 Foto aufnehmen / auswählen / PDF
-        <input type="file" name="files" accept="image/*,application/pdf,.pdf" multiple>
+        <input type="file" name="files" accept="image/*,application/pdf,.pdf,text/plain,.txt" multiple>
       </label>
-      <p class="hint">Am besten funktionieren Vokabellisten mit zwei Spalten (Fremdwort | Deutsch), gerade und gut beleuchtet fotografiert.
-      Du kannst alles vor dem Speichern prüfen und korrigieren.</p>
+      <p class="hint">Am besten funktionieren gedruckte Vokabellisten, gerade und gut beleuchtet fotografiert.
+      <strong>Handschrift</strong> liest nur die KI (Claude) zuverlässig – oder du nutzt die Texterkennung des iPhones
+      (siehe „Text einfügen“). Du kannst alles vor dem Speichern prüfen und korrigieren.</p>
     </section>
 
     <section class="card">
       <h3>Oder Text einfügen</h3>
+      <details class="hint">
+        <summary>💡 Tipp für Handschrift: Texterkennung des iPhones</summary>
+        <ol>
+          <li>Die Seite in der <strong>Fotos</strong>-App öffnen (bei einer PDF: in <strong>Dateien</strong> öffnen).</li>
+          <li>Auf ein Wort tippen und halten, dann <strong>„Alles auswählen“</strong> → <strong>„Kopieren“</strong>.</li>
+          <li>Hier ins Feld tippen → <strong>„Einsetzen“</strong> → „Text übernehmen“.</li>
+        </ol>
+        Die App erkennt auch, wenn erst alle englischen und dann alle deutschen Wörter kommen.
+      </details>
       <textarea name="pasted" rows="5" placeholder="house – Haus&#10;to go – gehen">${esc(imp.pasted)}</textarea>
       <label class="field">Lektion (optional)
         <input name="pasteLesson" value="${esc(imp.pasteLesson)}" placeholder="z. B. Lektion 3" ${lessonDatalistAttr()}>
@@ -253,7 +271,9 @@ function reviewView() {
   return `
     <button class="back link" data-action="back">‹ Zurück</button>
     <h1>Vokabeln prüfen</h1>
+    ${imp.unreadable ? handwritingNotice() : ''}
     ${imp.notice ? `<section class="card warn">${esc(imp.notice)}</section>` : ''}
+    ${imp.unreadable ? pageImagesSection(true) : ''}
     <p class="hint">Links steht ${subject.name}, rechts Deutsch. Falls es andersherum erkannt wurde: „Spalten tauschen“.
     Tippe auf ✓, um eine Zeile ab- oder anzuwählen.</p>
     <div class="row wrap">
@@ -278,6 +298,7 @@ function reviewView() {
         </div>`).join('')}
     </div>
     ${sentencesSection(subject)}
+    ${imp.unreadable ? '' : pageImagesSection(false)}
     ${imp.rawText ? `
       <details class="card">
         <summary>Erkannter Text anzeigen</summary>
@@ -286,6 +307,37 @@ function reviewView() {
     <button class="btn primary large sticky-bottom" data-action="save" ${included || sentencesIncluded ? '' : 'disabled'}>
       ${included} Vokabeln${sentencesIncluded ? ` + ${sentencesIncluded} Sätze` : ''} übernehmen
     </button>`;
+}
+
+/** Die Texterkennung konnte (einige) Seiten nicht lesen – meist Handschrift. */
+function handwritingNotice() {
+  const ai = isConfigured();
+  return `
+    <section class="card warn">
+      <h3>✍️ Handschrift erkannt?</h3>
+      <p>${imp.unreadable === 1 ? 'Eine Seite' : `${imp.unreadable} Seiten`} konnte die Texterkennung auf dem Gerät nicht lesen.
+      Sie ist für gedruckte Schrift gemacht – Handschrift kann sie kaum lesen.</p>
+      ${ai
+        ? '<button class="btn primary large" data-action="retryWithClaude">🤖 Mit Claude lesen</button><p class="small">Claude liest auch Handschrift zuverlässig (ca. 1–2 Cent pro Seite).</p>'
+        : `<p><strong>Zwei Möglichkeiten:</strong></p>
+           <ol>
+             <li><strong>Claude</strong> liest Handschrift zuverlässig (ca. 1–2 Cent pro Seite).
+               Dafür in den <a href="#/einstellungen">Einstellungen</a> einen API-Schlüssel eintragen und den Import wiederholen.</li>
+             <li><strong>Kostenlos mit dem iPhone:</strong> Seite in Fotos/Dateien öffnen, Text gedrückt halten →
+               „Alles auswählen“ → „Kopieren“ und unter „Vokabeln importieren → Text einfügen“ einsetzen.</li>
+           </ol>`}
+      <p class="small">Oder unten mit „＋ Zeile“ abtippen – die Seiten siehst du hier zum Nachsehen.</p>
+    </section>`;
+}
+
+/** Seitenbilder zum Nachsehen beim Prüfen und Abtippen */
+function pageImagesSection(open) {
+  if (!imp.pageImages.length) return '';
+  return `
+    <details class="card" ${open ? 'open' : ''}>
+      <summary>📄 Seiten anzeigen (${imp.pageImages.length})</summary>
+      <div class="page-images">${imp.pageImages.map((src, i) => `<img src="${src}" alt="Seite ${i + 1}" loading="lazy">`).join('')}</div>
+    </details>`;
 }
 
 /** Gefundene Beispielsätze (werden als Übungssätze für „Sätze übersetzen“ gespeichert). */
@@ -336,6 +388,10 @@ async function prepareFiles(files, draw) {
   }
 }
 
+function isTextFile(file) {
+  return file.type === 'text/plain' || /\.txt$/i.test(file.name);
+}
+
 function isPdf(file) {
   return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
 }
@@ -344,13 +400,13 @@ function isPdf(file) {
  * Erkennt die Vokabeln aller Dateien.
  * @param {string[] | null} lessons Lektion pro Seite/Foto (in der Reihenfolge von imp.units) oder null
  */
-async function processFiles(files, lessons, draw) {
+async function processFiles(files, lessons, draw, { forceAI = false } = {}) {
   const subject = targetSubject();
-  const useAI = db.settings.useAI && isConfigured();
+  const useAI = (forceAI || db.settings.useAI) && isConfigured();
   const languages = SUBJECTS[subject].ocrLang;
   const found = [];
   const foundSentences = [];
-  imp = { ...imp, stage: 'busy', rawText: '' };
+  imp = { ...imp, stage: 'busy', rawText: '', pageImages: [], unreadable: 0, lessons, notice: forceAI ? '' : imp.notice };
 
   const setMessage = (text) => {
     imp.message = text;
@@ -388,6 +444,12 @@ async function processFiles(files, lessons, draw) {
         : [await recognizeImage(await toCanvas(file), languages, (m) => setMessage(m + step))];
       pages.forEach((page, p) => {
         imp.rawText += (imp.rawText ? '\n\n' : '') + page.text;
+        if (page.image) imp.pageImages.push(page.image);
+        if (page.quality < READABLE_QUALITY) {
+          // Nicht lesbar (meist Handschrift): lieber nichts anbieten als Unsinn
+          imp.unreadable += 1;
+          return;
+        }
         // Als Tabelle erkannt? Sonst Zeile für Zeile nach Trennzeichen suchen.
         const pairs = page.pairs?.length >= 3 ? page.pairs : parse(page.text);
         found.push(...pairs.map(fixOcrAccents).map((pair) => ({ ...pair, lesson: lessonFor(i, p) })));
@@ -411,9 +473,9 @@ function fixSentenceAccents(sentence) {
 
 async function processText(text, draw) {
   const subject = targetSubject();
-  imp = { ...imp, stage: 'busy', notice: '', rawText: '' };
+  imp = { ...imp, stage: 'busy', notice: '', rawText: '', pageImages: [], unreadable: 0 };
   const lesson = cleanLesson(imp.pasteLesson);
-  let found = parse(text);
+  let found = parseText(text);
   let sentences = [];
   if (db.settings.useAI && isConfigured()) {
     imp.message = 'Claude sortiert die Vokabeln …';
@@ -450,7 +512,7 @@ function finish(found, draw, sentences = []) {
       return true;
     })
     .map((p) => ({ term: p.term ?? '', translation: p.translation ?? '', note: p.note ?? '', lesson: p.lesson ?? '', include: true }));
-  if (!imp.pairs.length && !imp.sentences.length) {
+  if (!imp.pairs.length && !imp.sentences.length && !imp.unreadable) {
     imp.notice = `${imp.notice} Es wurden keine Vokabeln erkannt. Du kannst sie mit „＋ Zeile“ auch von Hand eintragen.`.trim();
   }
   imp.stage = 'review';

@@ -16,7 +16,9 @@ export function isConfigured() {
 function extractionInstructions(subject) {
   const name = SUBJECTS[subject].name;
   let text = `Du hilfst einem Schulkind beim Anlegen von Vokabelkarten für das Fach ${name}.
-Das Material ist meist ein Foto einer Vokabelliste aus einem Schulbuch, oft eine Tabelle mit mehreren Spalten:
+Das Material ist ein Foto einer Vokabelliste: aus einem Schulbuch (oft eine Tabelle mit mehreren Spalten) oder
+handschriftlich aus einem Vokabelheft (meist links ${name}, rechts Deutsch). Lies Handschrift sorgfältig Zeile für Zeile.
+Spalten im Schulbuch:
 Wort auf ${name} | Grammatikangaben | deutsche Bedeutung (darunter manchmal Beispielsätze) | Merkhilfen (Fremdwörter mit Flaggen, Verweise mit →).
 Extrahiere alle Vokabeln dieser Seite:
 - "term": das Wort oder der Ausdruck auf ${name}, genau so geschrieben wie im Buch (Makrons wie ā, ē dürfen bleiben).
