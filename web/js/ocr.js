@@ -12,6 +12,12 @@ const PDFJS_WORKER_URL = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/
 /** Zielgröße (längste Seite in Pixeln) für die Texterkennung */
 const OCR_SIZE = 2200;
 
+/**
+ * Unter dieser Sicherheit (Median, 0–100) ist die Seite praktisch nicht lesbar – meist Handschrift.
+ * Gemessen: gedruckte Schulbuchseite ≈ 95, handgeschriebenes Vokabelheft ≈ 40.
+ */
+export const READABLE_QUALITY = 70;
+
 let tesseractLoading;
 function loadTesseract() {
   tesseractLoading ??= new Promise((resolve, reject) => {
@@ -118,10 +124,12 @@ export function cleanUpImage(canvas) {
 
 /**
  * Erkennt Text in einem Bild. `languages` z. B. "eng+deu" oder "lat+deu".
- * @returns {Promise<{text: string, pairs: object[] | null, sentences: object[]}>}
+ * @returns {Promise<{text: string, pairs: object[] | null, sentences: object[], quality: number, image: string}>}
+ *   quality = wie sicher sich die Texterkennung ist (0–100), image = Vorschaubild der Seite
  */
 export async function recognizeImage(canvas, languages, onProgress) {
   progressListener = onProgress;
+  const image = (await toCanvas(canvas, 1200)).toDataURL('image/jpeg', 0.7);
   const w = await getWorker(languages);
   const { data } = await w.recognize(cleanUpImage(canvas));
   const words = (data.words ?? []).map((word) => ({
@@ -133,16 +141,20 @@ export async function recognizeImage(canvas, languages, onProgress) {
     y1: word.bbox.y1,
   }));
   const content = tableToContent(words, canvas.width);
+  const confidences = words.filter((x) => /\p{L}/u.test(x.text)).map((x) => x.confidence).sort((a, b) => a - b);
   return {
     text: words.length ? wordsToLines(words) : data.text,
     pairs: content?.pairs ?? null,
     sentences: content?.sentences ?? [],
+    quality: confidences.length ? confidences[Math.floor(confidences.length / 2)] : 0,
+    image,
   };
 }
 
 /**
  * Liest eine PDF-Datei Seite für Seite.
- * @returns {Promise<{text: string, pairs: object[] | null, sentences: object[]}[]>} ein Eintrag pro Seite
+ * @returns {Promise<{text: string, pairs: object[] | null, sentences: object[], quality: number, image?: string}[]>}
+ *   ein Eintrag pro Seite
  */
 export async function recognizePdf(file, languages, onProgress) {
   const pdfjs = await loadPdfJs();
@@ -166,7 +178,7 @@ export async function recognizePdf(file, languages, onProgress) {
     const text = words.length ? wordsToLines(words) : '';
     if (text.replace(/\s/g, '').length > 30) {
       const content = tableToContent(words, width);
-      pages.push({ text, pairs: content?.pairs ?? null, sentences: content?.sentences ?? [] });
+      pages.push({ text, pairs: content?.pairs ?? null, sentences: content?.sentences ?? [], quality: 100 });
     } else {
       // Eingescannte/fotografierte Seite → als Bild erkennen
       const canvas = await renderPdfPage(page);

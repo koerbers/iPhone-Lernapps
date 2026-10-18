@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { ALMOST, CORRECT, WRONG, check, checkMeanings, levenshtein, sentenceSimilarity } from '../js/answer.js';
-import { fixOcrAccents, parse } from '../js/parser.js';
+import { fixOcrAccents, parse, parseText } from '../js/parser.js';
 import { isGermanLine, tableToContent, tableToPairs } from '../js/layout.js';
 import { createSession, currentItem, recordAnswer } from '../js/session.js';
 import { MAX_BOX, buildSession, isDue, newState, priority, review, startOfDay, addDays } from '../js/srs.js';
@@ -95,6 +95,20 @@ describe('Vokabel-Erkennung', () => {
   });
   test('Wörter wie „page“ oder „unit“ bleiben Vokabeln', () => {
     assert.deepEqual(parse('page – Seite\nunit = Einheit').map((p) => p.term), ['page', 'unit']);
+  });
+});
+
+describe('Eingefügter Text (iPhone-Texterkennung)', () => {
+  const expected = ['welcome=willkommen', 'workshop=Werkstatt', 'my=mein', 'to listen=hören, zuhören'];
+  const show = (pairs) => pairs.map((p) => `${p.term}=${p.translation}`);
+  test('spaltenweise: erst Englisch, dann Deutsch', () => {
+    assert.deepEqual(show(parseText('welcome\nworkshop\nmy\nto listen\nwillkommen\nWerkstatt\nmein\nhören, zuhören')), expected);
+  });
+  test('abwechselnd: Wort, Übersetzung, …', () => {
+    assert.deepEqual(show(parseText('welcome\nwillkommen\nworkshop\nWerkstatt\nmy\nmein\nto listen\nhören, zuhören')), expected);
+  });
+  test('mit Trennzeichen wie bisher', () => {
+    assert.deepEqual(show(parseText('house – Haus\ndog = Hund')), ['house=Haus', 'dog=Hund']);
   });
 });
 

@@ -15,6 +15,37 @@ export function parse(text) {
   return text.split(/\r?\n/).map(parseLine).filter(Boolean);
 }
 
+/**
+ * Wie parse(), versteht aber zusätzlich eingefügten Text ohne Trennzeichen, wie ihn die
+ * iPhone-Texterkennung („Live Text“) aus einer zweispaltigen Liste kopiert:
+ * - spaltenweise: erst alle Wörter der linken Spalte, dann alle der rechten
+ * - abwechselnd: Wort, Übersetzung, Wort, Übersetzung …
+ * Gewählt wird die Anordnung, bei der rechts am ehesten Deutsch steht.
+ */
+export function parseText(text) {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const pairs = parse(text);
+  if (pairs.length >= lines.length * 0.4 || lines.length < 4 || lines.length % 2) return pairs;
+
+  const half = lines.length / 2;
+  const blocks = lines.slice(0, half).map((l, i) => [l, lines[half + i]]);
+  const alternating = [];
+  for (let i = 0; i < lines.length; i += 2) alternating.push([lines[i], lines[i + 1]]);
+  const germanRight = (list) => list.reduce((sum, [a, b]) => sum + germanWordScore(b) - germanWordScore(a), 0);
+  const best = germanRight(blocks) >= germanRight(alternating) ? blocks : alternating;
+  return best.map(([a, b]) => makePair(a, b)).filter(Boolean);
+}
+
+/** Wie deutsch sieht ein einzelnes Wort/eine Zeile aus? (Umlaute, großgeschriebene Nomen, Endungen) */
+function germanWordScore(text) {
+  let score = 0;
+  if (/[äöüß]/i.test(text)) score += 2;
+  if (/^\p{Lu}\p{Ll}/u.test(text)) score += 1; // deutsche Nomen sind großgeschrieben
+  if (/(en|ung|chen|lich|ig|keit|heit)\b/i.test(text)) score += 1;
+  if (/^to\s/i.test(text)) score -= 2; // englische Verben
+  return score;
+}
+
 export function parseLine(rawLine) {
   const line = rawLine.replaceAll('|', '\t').trim();
   if (line.length < 3) return null;
