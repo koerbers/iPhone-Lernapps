@@ -3,6 +3,8 @@
 // - ä/ae, ö/oe, ü/ue, ß/ss werden gleich behandelt.
 // - Artikel (der/die/das, the/a), Personalpronomen (er/sie/es …) und „to“ vor englischen Verben sind optional.
 // - Klammerinhalte sind optional: „(sich) freuen“ = „freuen“.
+// - Platzhalter wie „etw.“, „jdn.“, „sth.“ sind optional, Leerzeichen egal („gernhaben“ = „gern haben“).
+// - Mehrere Bedeutungen dürfen ohne Komma und in beliebiger Reihenfolge kommen („gern haben mögen“).
 // - Bei mehreren Bedeutungen („Haus, Gebäude“) reicht eine davon. checkMeanings() meldet
 //   zusätzlich, welche Bedeutungen noch fehlen (die werden später nochmal abgefragt).
 // - Kleine Tippfehler ergeben „fast richtig“ (zählt als richtig).
@@ -18,6 +20,34 @@ const OPTIONAL_PREFIXES = [
   // Personalpronomen: „er (sie, es) ist“ = „ist“ = „sie ist“ = „es ist“
   'ich ', 'du ', 'er ', 'sie ', 'es ', 'wir ', 'ihr ',
 ];
+
+// Platzhalter für Ergänzungen („etw. gern haben“, „to like sth.“) – dürfen fehlen
+const PLACEHOLDERS = new Set(['etw', 'jdn', 'jdm', 'jds', 'jd', 'sth', 'smth', 'sb', 'smb']);
+
+/** Vergleichsschlüssel: ohne Platzhalter und ohne Leerzeichen („etw gern haben“ → „gernhaben“). */
+function key(normalized) {
+  const words = normalized.split(' ');
+  const kept = words.filter((w) => !PLACEHOLDERS.has(w));
+  return (kept.length ? kept : words).join('');
+}
+
+/**
+ * Antwort ohne Trennzeichen, die mehrere Bedeutungen hintereinander nennt („mögen gern haben“)?
+ * Zerlegt die Wörter so, dass jedes Stück genau einer Bedeutung entspricht. @returns Nummern oder null
+ */
+function segment(words, variantKeys) {
+  const best = new Array(words.length + 1).fill(null);
+  best[0] = [];
+  for (let start = 0; start < words.length; start++) {
+    if (!best[start]) continue;
+    for (let end = start + 1; end <= words.length; end++) {
+      const piece = key(words.slice(start, end).join(' '));
+      const i = variantKeys.findIndex((keys) => keys.includes(piece));
+      if (i >= 0 && !best[end]) best[end] = [...best[start], i];
+    }
+  }
+  return best[words.length];
+}
 
 export function check(input, expected, options) {
   return checkMeanings(input, expected, options).result;
@@ -45,18 +75,24 @@ export function checkMeanings(input, expected, { typoBonus = 0 } = {}) {
 
   // Genau richtig: alles zusammen, egal mit welchen Satzzeichen („schau, schaut“ = „Schau! Schaut!“)
   if (whole && (normalize(input) === whole || given.includes(whole))) return outcome(CORRECT, new Set(meanings.keys()));
+  const variantKeys = variants.map((v) => v.map(key));
   const matched = new Set();
   for (const g of given) {
-    variants.forEach((v, i) => {
-      if (v.includes(g)) matched.add(i);
+    variantKeys.forEach((v, i) => {
+      if (v.includes(key(g))) matched.add(i);
     });
+  }
+  // Mehrere Bedeutungen ohne Komma in einem Stück
+  for (const g of given) {
+    const parts = matched.size < meanings.length && g.includes(' ') ? segment(g.split(' '), variantKeys) : null;
+    parts?.forEach((i) => matched.add(i));
   }
   if (matched.size) return outcome(CORRECT, matched);
 
   // Kleiner Tippfehler
   for (const g of given) {
-    variants.forEach((v, i) => {
-      if (v.some((s) => levenshtein(g, s) <= tolerance(s, typoBonus))) matched.add(i);
+    variantKeys.forEach((v, i) => {
+      if (v.some((s) => levenshtein(key(g), s) <= tolerance(s, typoBonus))) matched.add(i);
     });
   }
   return outcome(matched.size ? ALMOST : WRONG, matched);
