@@ -82,7 +82,7 @@ export function renderSettings(root) {
       <h3>🤖 Künstliche Intelligenz (Claude) – für alle Kinder</h3>
       <p class="hint">Die KI liest Vokabeln aus Fotos/PDFs (auch Handschrift) und bildet Übungssätze passend zum Alter.
       Dafür braucht es einen API-Schlüssel von
-      <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> (Abrechnung pro Nutzung, wenige Cent pro Runde –
+      <a href="https://platform.claude.com" target="_blank" rel="noopener">platform.claude.com</a> (Abrechnung pro Nutzung: eine Satzrunde kostet weniger als 0,1 Cent, eine Handschrift-Seite ca. 1–2 Cent –
       am besten ein Ausgabenlimit setzen). Der Schlüssel bleibt nur auf diesem Gerät.</p>
       <label class="field">API-Schlüssel
         <input name="claudeKey" type="password" autocomplete="off" value="${esc(getClaudeKey())}" placeholder="sk-ant-…">

@@ -5,7 +5,10 @@ import { activeProfile, currentLevel, getClaudeKey } from './store.js';
 import { SUBJECTS, sourceLang, targetLang } from './subjects.js';
 
 const ENDPOINT = 'https://api.anthropic.com/v1/messages';
-const MODEL = 'claude-opus-5-5';
+// Fotos lesen (auch Handschrift) braucht das große Modell; Sätze bilden und bewerten schafft das
+// kleine Modell ebenso gut – für etwa ein Vierzigstel des Preises.
+const READING_MODEL = 'claude-opus-5-5';
+const PRACTICE_MODEL = 'claude-haiku-5-5';
 
 export function isConfigured() {
   return Boolean(getClaudeKey());
@@ -89,6 +92,7 @@ export async function extractVocabulary(material, subject) {
   content.push({ type: 'text', text });
 
   const result = await send({
+    model: READING_MODEL,
     system: extractionInstructions(subject),
     content,
     effort: 'medium',
@@ -110,6 +114,7 @@ export async function extractVocabulary(material, subject) {
 export async function makeSentences(words, subject, dir, count) {
   const list = words.map((w) => `- ${w.term} = ${w.translation}`).join('\n');
   const result = await send({
+    model: PRACTICE_MODEL,
     system: sentenceInstructions(subject, dir),
     content: [{ type: 'text', text: `Erstelle ${count} Sätze. Verwende diese Vokabeln:\n${list}` }],
     effort: 'low',
@@ -122,6 +127,7 @@ export async function makeSentences(words, subject, dir, count) {
 
 export async function gradeTranslation(exercise, answer, subject, dir) {
   return send({
+    model: PRACTICE_MODEL,
     system: gradingInstructions(subject, dir),
     content: [{
       type: 'text',
@@ -142,10 +148,12 @@ function objectSchema(properties) {
   return { type: 'object', properties, required: Object.keys(properties), additionalProperties: false };
 }
 
-async function send({ system, content, schema, effort }) {
+async function send({ model, system, content, schema, effort }) {
   if (!isConfigured()) {
     throw new Error('Kein Claude-API-Schlüssel eingetragen (Einstellungen).');
   }
+  // Nur das große Modell kann eine abgelehnte Anfrage serverseitig an ein anderes Modell weitergeben
+  const serverFallback = model === READING_MODEL;
   const response = await fetch(ENDPOINT, {
     method: 'POST',
     headers: {
@@ -153,17 +161,17 @@ async function send({ system, content, schema, effort }) {
       'x-api-key': getClaudeKey(),
       'anthropic-version': '2023-06-01',
       // Lehnt das Modell eine Anfrage ab, versucht die API es automatisch mit einem anderen Modell.
-      'anthropic-beta': 'server-side-fallback-2026-07-01',
+      ...(serverFallback ? { 'anthropic-beta': 'server-side-fallback-2026-07-01' } : {}),
       // Erlaubt den Aufruf direkt aus dem Browser (der Schlüssel bleibt auf diesem Gerät).
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       max_tokens: 16000,
       system,
       messages: [{ role: 'user', content }],
       output_config: { effort, format: { type: 'json_schema', schema } },
-      fallbacks: 'default',
+      ...(serverFallback ? { fallbacks: 'default' } : {}),
     }),
   });
 
@@ -172,7 +180,11 @@ async function send({ system, content, schema, effort }) {
     if (response.status === 401) throw new Error('Der API-Schlüssel ist ungültig.');
     throw new Error(json.error?.message ?? `Fehler ${response.status}`);
   }
-  if (json.stop_reason === 'refusal') throw new Error('Die KI hat diese Anfrage abgelehnt.');
+  if (json.stop_reason === 'refusal') {
+    // Das kleine Modell lehnt gelegentlich harmlose Sätze ab: dann einmal mit dem großen Modell versuchen
+    if (model !== READING_MODEL) return send({ model: READING_MODEL, system, content, schema, effort });
+    throw new Error('Die KI hat diese Anfrage abgelehnt.');
+  }
 
   const text = json.content?.filter((b) => b.type === 'text').at(-1)?.text;
   if (!text) throw new Error('Die KI hat keine Antwort geliefert.');
