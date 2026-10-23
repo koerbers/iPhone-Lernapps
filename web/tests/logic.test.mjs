@@ -370,3 +370,16 @@ test('Latein: „violave“ wird zu „violare“, echte Wörter auf -ve bleiben
   assert.equal(fix('servave', 'der Garten'), 'servave'); // Substantiv als Bedeutung: nicht ändern
   assert.equal(fix('servave', 'retten, bewahren'), 'servare');
 });
+
+test('„to like“: mögen / gern haben in jeder Form', () => {
+  for (const solution of ['mögen, gern haben', 'gern haben, mögen', 'mögen, etw. gern haben', 'gernhaben; mögen']) {
+    for (const answer of ['mögen', 'gern haben', 'gernhaben', 'mögen, gern haben', 'mögen gern haben', 'gern haben mögen', 'Mögen; gern haben!']) {
+      assert.equal(check(answer, solution), CORRECT, `${answer} → ${solution}`);
+    }
+  }
+  assert.deepEqual(checkMeanings('mögen gern haben', 'gern haben, mögen').missing, []);
+  assert.equal(check('hassen', 'mögen, gern haben'), WRONG);
+  assert.equal(check('gern', 'mögen, gern haben'), WRONG);
+  assert.equal(check('mögen hassen', 'mögen, gern haben'), WRONG);
+  assert.equal(check('like', 'to like sth.'), CORRECT);
+});
