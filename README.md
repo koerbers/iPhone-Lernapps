@@ -53,7 +53,7 @@ bessere Erkennung unübersichtlicher Seiten braucht es **Claude**:
 1. Auf <https://platform.claude.com> ein Konto anlegen, ein kleines Guthaben aufladen und ein **Ausgabenlimit** setzen.
 2. Einen API-Schlüssel erstellen und in der App unter **Einstellungen** eintragen.
 
-Eine Übungsrunde kostet wenige Cent. Der Schlüssel bleibt nur auf dem jeweiligen Gerät.
+Sätze bilden und bewerten übernimmt das kleine, sehr günstige Modell Claude Haiku 5.5 (eine Runde mit 5 Sätzen kostet weniger als 0,1 Cent). Nur das Lesen von Fotos/Handschrift nutzt das große Modell Claude Opus 5.5. Der Schlüssel bleibt nur auf dem jeweiligen Gerät.
 (Die Swift-App kann auf neueren Geräten mit iOS/iPadOS 26 stattdessen auch Apple Intelligence nutzen, kostenlos und offline.)
 
 ---
