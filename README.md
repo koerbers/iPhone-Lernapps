@@ -32,7 +32,8 @@ Die App gibt es in zwei Varianten, beide brauchen **keinen Mac**:
   Vokabeln, die schon oft falsch waren, kommen auch nach richtigen Antworten früher wieder.
 - **Mehrere Bedeutungen:** Eine richtige Bedeutung reicht. Gibt es weitere (z. B. „domina – die Herrin, die Dame“), kommt das Wort nach ein paar anderen Karten noch einmal: „Nenne eine weitere Bedeutung“.
 - **Grammatik** (z. B. „m“, „Adv.“, „Präp. m. Akk.“, Stammformen) wird erst nach der Antwort zusammen mit der Lösung aufgedeckt.
-- **Lektionen:** Beim Import fragt die App, ob die Seiten/Fotos Lektionen zugeordnet werden sollen. Beim Üben (und beim Sätze-Übersetzen) lassen sich dann einzelne Lektionen gezielt auswählen. Neue Vokabeln kommen zufällig aus dem ganzen ausgewählten Vorrat.
+- **Lektionen:** Beim Import fragt die App, ob die Seiten/Fotos Lektionen zugeordnet werden sollen. Beim Üben (und beim Sätze-Übersetzen) lassen sich dann einzelne Lektionen gezielt auswählen. Neue Vokabeln kommen zufällig aus dem ganzen ausgewählten Vorrat. Nachträglich zuordnen: die gleiche PDF noch einmal in dieselbe Liste importieren und dabei die Lektionen eintragen. Vorhandene Vokabeln bekommen die neue Lektion, ohne doppelt angelegt zu werden; der Lernstand bleibt.
+- **Beispielvokabeln:** lassen sich einmal hinzufügen und unter Einstellungen wieder entfernen (mit Eltern-Code).
 - **Vokabeln korrigieren:** In der Vokabelliste antippen – oder während der Abfrage über „✏️ Vokabel korrigieren“.
 - **Timer:** Beim Üben ist ein Timer mit 15 Minuten vorgelegt (in 5-Minuten-Schritten verlängerbar, abschaltbar). Es kommen so lange Vokabeln, bis die Zeit um ist.
 - **Daumen hoch/runter:** 👍 oder 👎 nach jeder Antwort und als Gesamtergebnis am Ende der Runde.

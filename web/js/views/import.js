@@ -63,6 +63,8 @@ export function renderImport(root, listId) {
     if (t.name === 'pasted') imp.pasted = t.value;
     if (t.name === 'pasteLesson') imp.pasteLesson = t.value;
     if (t.dataset.field) imp.pairs[Number(t.dataset.row)][t.dataset.field] = t.value;
+    // Schon beim Tippen übernehmen: auf dem iPhone kommt „change“ nicht immer an, wenn man direkt „Import starten“ tippt
+    if (t.dataset.unit) setUnitLesson(root, Number(t.dataset.unit), t.value, { typing: true });
     if (t.dataset.sfield === 'prompt') imp.sentences[Number(t.dataset.srow)].prompt = t.value;
     if (t.dataset.sfield === 'solutions') {
       imp.sentences[Number(t.dataset.srow)].solutions = t.value.split(' / ').map((x) => x.trim()).filter(Boolean);
@@ -239,7 +241,7 @@ function assignView() {
 }
 
 /** Lektion einer Seite setzen; folgende Seiten ohne eigene Angabe übernehmen sie. */
-function setUnitLesson(root, index, value) {
+function setUnitLesson(root, index, value, { typing = false } = {}) {
   const lesson = cleanLesson(value);
   imp.units[index].lesson = lesson;
   imp.units[index].explicit = Boolean(lesson);
@@ -252,7 +254,7 @@ function setUnitLesson(root, index, value) {
     if (input && document.activeElement !== input) input.value = u.lesson;
     input?.classList.toggle('explicit', u.explicit);
   });
-  root.querySelector(`[data-unit="${index}"]`).value = lesson;
+  if (!typing) root.querySelector(`[data-unit="${index}"]`).value = lesson;
 }
 
 function busyView() {
@@ -535,8 +537,8 @@ function saveImport() {
     const lesson = cleanLesson(pair.lesson);
     const known = existing.get(key);
     if (known) {
-      // Schon vorhanden: nichts doppelt anlegen, aber fehlende Lektion nachtragen (Lernstand bleibt erhalten)
-      if (lesson && !known.lesson) known.lesson = lesson;
+      // Schon vorhanden: nichts doppelt anlegen, aber die beim Import gewählte Lektion übernehmen (Lernstand bleibt erhalten)
+      if (lesson) known.lesson = lesson;
       continue;
     }
     existing.set(key, addCard(list.id, term, translation, pair.note, lesson));
@@ -551,7 +553,7 @@ function saveImport() {
     const lesson = cleanLesson(x.lesson);
     const known = knownSentences.get(normalize(prompt));
     if (known) {
-      if (lesson && !known.lesson) known.lesson = lesson;
+      if (lesson) known.lesson = lesson;
       continue;
     }
     knownSentences.set(normalize(prompt), addSentence(list.id, prompt, solutions, lesson));

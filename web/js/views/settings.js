@@ -2,8 +2,8 @@
 import { isConfigured, makeSentences } from '../ai.js';
 import { levelOf } from '../level.js';
 import {
-  activeProfile, avatarHtml, db, deleteProfile, exportBackup, getClaudeKey, importBackup, insertSampleData, profiles,
-  resetProgress, save, setClaudeKey, switchProfile,
+  activeProfile, avatarHtml, db, deleteProfile, exportBackup, getClaudeKey, hasSampleData, importBackup, insertSampleData, profiles,
+  removeSampleData, resetProgress, save, setClaudeKey, switchProfile,
 } from '../store.js';
 import { changeParentCode, hasParentCode, removeParentCode, requireParent, setupParentCode } from '../parent.js';
 import { esc, onAction } from '../ui.js';
@@ -107,7 +107,9 @@ export function renderSettings(root) {
 
     <section class="card">
       <div class="row wrap">
-        <button class="btn" data-action="sample">Beispielvokabeln hinzufügen</button>
+        ${hasSampleData()
+          ? '<button class="btn" data-action="removeSample">Beispielvokabeln entfernen</button>'
+          : '<button class="btn" data-action="sample">Beispielvokabeln hinzufügen</button>'}
         <button class="btn bad" data-action="reset">Lernstand von ${esc(profile.name)} zurücksetzen</button>
       </div>
     </section>
@@ -188,6 +190,12 @@ export function renderSettings(root) {
     },
     sample: () => {
       insertSampleData();
+      renderSettings(root);
+    },
+    removeSample: async () => {
+      if (!(await requireParent('Die Beispielvokabeln löschen'))) return;
+      if (!confirm('Beispiellisten „Beispiel: Unit 1“ und „Beispiel: Lektion 1“ mit ihrem Lernstand löschen?')) return;
+      removeSampleData();
       renderSettings(root);
     },
     setCode: async () => {

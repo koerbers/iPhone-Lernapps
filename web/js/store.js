@@ -50,7 +50,9 @@ function cleanState(st) {
 function cleanData(d) {
   const lists = list(d?.lists)
     .filter((l) => safeId(l?.id) && SUBJECT_IDS.includes(l.subject))
-    .map((l) => ({ id: l.id, name: str(l.name, 100) || 'Liste', subject: l.subject, createdAt: num(l.createdAt) }));
+    .map((l) => ({
+      id: l.id, name: str(l.name, 100) || 'Liste', subject: l.subject, createdAt: num(l.createdAt), ...(l.sample === true ? { sample: true } : {}),
+    }));
   const listIds = new Set(lists.map((l) => l.id));
   const cards = list(d?.cards)
     .filter((c) => safeId(c?.id) && listIds.has(c.listId))
@@ -426,8 +428,25 @@ export function copyListToProfile(listId, profileId) {
 
 // ---------- Beispieldaten ----------
 
+// Beispiellisten: markiert (ältere erkennt man am Namen), damit sie nur einmal angelegt und wieder entfernt werden können
+const isSample = (list) => list.sample === true || list.name.startsWith('Beispiel: ');
+
+export function hasSampleData() {
+  return db.lists.some(isSample);
+}
+
+export function removeSampleData() {
+  const ids = new Set(db.lists.filter(isSample).map((l) => l.id));
+  db.lists = db.lists.filter((l) => !ids.has(l.id));
+  db.cards = db.cards.filter((c) => !ids.has(c.listId));
+  db.sentences = db.sentences.filter((x) => !ids.has(x.listId));
+  save();
+}
+
 export function insertSampleData() {
+  if (hasSampleData()) return;
   const en = addList('Beispiel: Unit 1', 'english');
+  en.sample = true;
   for (const [t, d] of [
     ['house', 'Haus'], ['to go, went, gone', 'gehen'], ['friend', 'Freund, Freundin'],
     ['school', 'Schule'], ['to be happy', 'glücklich sein'], ['dog', 'Hund'],
@@ -435,6 +454,7 @@ export function insertSampleData() {
   ]) addCard(en.id, t, d);
 
   const la = addList('Beispiel: Lektion 1', 'latin');
+  la.sample = true;
   for (const [t, d] of [
     ['amicus, -i m.', 'Freund'], ['villa, -ae f.', 'Haus, Landhaus'], ['vocare, voco', 'rufen, nennen'],
     ['magnus, -a, -um', 'groß'], ['et', 'und'], ['non', 'nicht'], ['servus, -i m.', 'Sklave, Diener'],
